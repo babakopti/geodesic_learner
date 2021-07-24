@@ -1,282 +1,105 @@
-# ***********************************************************************
 # Import libraries
-# ***********************************************************************
-
 import sys
 import os
 import numpy as np
 import scipy as sp
 
-# ***********************************************************************
-# OdeBaseConst(): An Scipy based solver; const. curv.
-# ***********************************************************************
-
-class OdeBaseConst:
-
-    def __init__( self,
-                  Gamma,
-                  bcVec,
-                  bcTime,
-                  timeInc,
-                  nSteps,
-                  intgType = 'LSODA',
-                  actSol   = None,
-                  adjSol   = None,
-                  tol      = 1.0e-4,
-                  nMaxItrs = 20,
-                  varCoefs = None,
-                  srcCoefs = None,
-                  srcTerm  = None,
-                  atnCoefs = None,                  
-                  verbose  = 1           ):
-
-        nDims   = len( bcVec )
-        nTimes  = nSteps + 1
-
-        assert bcTime >= 0, 'BC time should be >= 0!'
-
-        assert Gamma.shape[0] == nDims,  'Incorrect Gamma size!'
-        assert Gamma.shape[1] == nDims,  'Incorrect Gamma size!'
-        assert Gamma.shape[2] == nDims,  'Incorrect Gamma size!'
-        
-        if actSol is not None:
-            assert actSol.shape[0] == nDims,  'Incorrect actSol size!'
-            assert actSol.shape[1] == nTimes, 'Incorrect actSol size!'
-
-        if adjSol is not None:
-            assert adjSol.shape[0] == nDims,  'Incorrect adjSol size!'
-            assert adjSol.shape[1] == nTimes, 'Incorrect adjSol size!'
-
-        if varCoefs is not None:
-            assert len( varCoefs ) == nDims, 'Incorrect varCoefs size!'
-        else:
-            varCoefs = np.ones( shape = ( nDims ), dtype = 'd' )
-            
-        if srcTerm is not None:
-            assert srcTerm.shape[0] == nDims,  'Incorrect srcTerm size!'
-            assert srcTerm.shape[1] == nTimes, 'Incorrect srcTerm size!'
-
-        if srcCoefs is not None:
-            assert srcCoefs.shape[0] == nDims,     'Incorrect srcCoefs size!'
-            assert srcCoefs.shape[1] == nDims + 1, 'Incorrect srcCoefs size!'
-        else:
-            srcCoefs = np.zeros( shape = ( nDims, nDims + 1 ), dtype = 'd' )
-
-        if atnCoefs is not None:
-            assert len( atnCoefs ) == nTimes, 'Incorrect atnCoefs size!'
-        else:
-            atnCoefs = np.ones( shape = ( nTimes ), dtype = 'd' )
-            
-        self.Gamma    = Gamma
-        self.bcVec    = bcVec
-        self.bcTime   = bcTime
-        self.nDims    = nDims
-        self.timeInc  = timeInc
-        self.nSteps   = nSteps
-        self.intgType = intgType
-        self.actSol   = actSol
-        self.adjSol   = adjSol
-        self.varCoefs = varCoefs
-        self.srcCoefs = srcCoefs
-        self.srcTerm  = srcTerm
-        self.atnCoefs = atnCoefs                
-        self.tol      = tol
-        self.nMaxItrs = nMaxItrs
-        self.verbose  = verbose
-        self.nTimes   = nTimes
-
-        self.sol      = np.zeros( shape = ( nDims, nTimes ), dtype = 'd' )
-
-    def fun( self, t, y ):
-        pass
-
-    def jac( self, t, y ):
-        pass
-
-    def solve( self ):
-        
-        nDims   = self.nDims
-        nSteps  = self.nSteps
-        nTimes  = self.nTimes
-        bcTime  = self.bcTime
-        timeInc = self.timeInc
-
-        bkFlag  = bool( bcTime > 0 )
-
-        if bkFlag:
-            endTime  = bcTime - nSteps * timeInc
-        else:
-            endTime  = bcTime + nSteps * timeInc
-
-        timeSpan = ( bcTime, endTime )        
-        timeEval = np.linspace( bcTime, endTime, nTimes )
-
-        if self.intgType in [ 'Radau', 'BDF', 'LSODA' ]:
-            res = sp.integrate.solve_ivp( fun      = self.fun, 
-                                          jac      = self.jac,
-                                          y0       = self.bcVec, 
-                                          t_span   = timeSpan,
-                                          t_eval   = timeEval,
-                                          method   = self.intgType,
-                                          rtol     = self.tol            )
-        else:
-            res = sp.integrate.solve_ivp( fun      = self.fun, 
-                                          y0       = self.bcVec, 
-                                          t_span   = timeSpan,
-                                          t_eval   = timeEval,
-                                          method   = self.intgType, 
-                                          rtol     = self.tol            )
-            
-        sFlag = res.success
-        
-        if not sFlag:
-            print(res)
-            print(self.Gamma)
-
-        assert sFlag, 'Failed to solve the ODE: %s' % res.message
-        
-        assert res.y.shape[0] == nDims,  'Internal error!'
-        assert res.y.shape[1] == nTimes, 'Internal error!'
-
-        if bkFlag:
-            self.sol = np.flip( res.y, 1 )
-        else:
-            self.sol = res.y.copy()
-
-        return sFlag 
-
-    def getSol( self ):
-        return self.sol
-
-# ***********************************************************************
-# OdeBase(): An Scipy based solver for NN-geo model
-# ***********************************************************************
-
+# OdeBase(): An Scipy based solver.
 class OdeBase:
+    def __init__(
+        self,
+        gamma,
+        bc_vec,
+        bc_time,
+        time_inc,
+        n_steps,
+        intg_type="LSODA",
+        act_sol=None,
+        adj_sol=None,
+        tol=1.0e-4,
+        n_max_iters=20,
+    ):
 
-    def __init__( self,
-                  Gamma,
-                  bcVec,
-                  bcTime,
-                  timeInc,
-                  nSteps,
-                  intgType = 'LSODA',
-                  actSol   = None,
-                  adjSol   = None,
-                  tol      = 1.0e-4,
-                  nMaxItrs = 20,
-                  varCoefs = None,
-                  srcCoefs = None,
-                  srcTerm  = None,
-                  atnCoefs = None,                  
-                  verbose  = 1           ):
+        n_dims = len(bc_vec)
+        n_times = n_steps + 1
 
-        nDims   = len( bcVec )
-        nTimes  = nSteps + 1
+        assert bc_time >= 0, "BC time should be >= 0!"
 
-        assert bcTime >= 0, 'BC time should be >= 0!'
-        
-        if actSol is not None:
-            assert actSol.shape[0] == nDims,  'Incorrect actSol size!'
-            assert actSol.shape[1] == nTimes, 'Incorrect actSol size!'
+        if act_sol is not None:
+            assert act_sol.shape[0] == n_dims, "Incorrect act_sol size!"
+            assert act_sol.shape[1] == n_times, "Incorrect act_sol size!"
 
-        if adjSol is not None:
-            assert adjSol.shape[0] == nDims,  'Incorrect adjSol size!'
-            assert adjSol.shape[1] == nTimes, 'Incorrect adjSol size!'
+        if adj_sol is not None:
+            assert adj_sol.shape[0] == n_dims, "Incorrect adj_sol size!"
+            assert adj_sol.shape[1] == n_times, "Incorrect adj_sol size!"
 
-        if varCoefs is not None:
-            assert len( varCoefs ) == nDims, 'Incorrect varCoefs size!'
-        else:
-            varCoefs = np.ones( shape = ( nDims ), dtype = 'd' )
-            
-        if srcTerm is not None:
-            assert srcTerm.shape[0] == nDims,  'Incorrect srcTerm size!'
-            assert srcTerm.shape[1] == nTimes, 'Incorrect srcTerm size!'
+        self.gamma = gamma
+        self.bc_vec = bc_vec
+        self.bc_time = bc_time
+        self.n_dims = n_dims
+        self.time_inc = time_inc
+        self.n_steps = n_steps
+        self.intg_type = intg_type
+        self.act_sol = act_sol
+        self.adj_sol = adj_sol
+        self.tol = tol
+        self.n_max_iters = n_max_iters
+        self.n_times = n_times
 
-        if srcCoefs is not None:
-            assert srcCoefs.shape[0] == nDims,     'Incorrect srcCoefs size!'
-            assert srcCoefs.shape[1] == nDims + 1, 'Incorrect srcCoefs size!'
-        else:
-            srcCoefs = np.zeros( shape = ( nDims, nDims + 1 ), dtype = 'd' )
+        self.sol = np.zeros(shape=(n_dims, n_times), dtype="d")
 
-        if atnCoefs is not None:
-            assert len( atnCoefs ) == nTimes, 'Incorrect atnCoefs size!'
-        else:
-            atnCoefs = np.ones( shape = ( nTimes ), dtype = 'd' )
-            
-        self.Gamma    = Gamma
-        self.bcVec    = bcVec
-        self.bcTime   = bcTime
-        self.nDims    = nDims
-        self.timeInc  = timeInc
-        self.nSteps   = nSteps
-        self.intgType = intgType
-        self.actSol   = actSol
-        self.adjSol   = adjSol
-        self.varCoefs = varCoefs
-        self.srcCoefs = srcCoefs
-        self.srcTerm  = srcTerm
-        self.atnCoefs = atnCoefs                
-        self.tol      = tol
-        self.nMaxItrs = nMaxItrs
-        self.verbose  = verbose
-        self.nTimes   = nTimes
-
-        self.sol      = np.zeros( shape = ( nDims, nTimes ), dtype = 'd' )
-
-    def fun( self, t, y ):
+    def fun(self, t, y):
         pass
 
-    def jac( self, t, y ):
+    def jac(self, t, y):
         pass
 
-    def solve( self ):
-        
-        nDims   = self.nDims
-        nSteps  = self.nSteps
-        nTimes  = self.nTimes
-        bcTime  = self.bcTime
-        timeInc = self.timeInc
+    def solve(self):
 
-        bkFlag  = bool( bcTime > 0 )
+        n_dims = self.n_dims
+        n_steps = self.n_steps
+        n_times = self.n_times
+        bc_time = self.bc_time
+        time_inc = self.time_inc
 
-        if bkFlag:
-            endTime  = bcTime - nSteps * timeInc
+        bk_flag = bool(bc_time > 0)
+
+        if bk_flag:
+            end_time = bc_time - n_steps * time_inc
         else:
-            endTime  = bcTime + nSteps * timeInc
+            end_time = bc_time + n_steps * time_inc
 
-        timeSpan = ( bcTime, endTime )        
-        timeEval = np.linspace( bcTime, endTime, nTimes )
+        time_span = (bc_time, end_time)
+        time_eval = np.linspace(bc_time, end_time, n_times)
 
-        if self.intgType in [ 'Radau', 'BDF', 'LSODA' ]:
-            res = sp.integrate.solve_ivp( fun      = self.fun, 
-                                          jac      = self.jac,
-                                          y0       = self.bcVec, 
-                                          t_span   = timeSpan,
-                                          t_eval   = timeEval,
-                                          method   = self.intgType, 
-                                          rtol     = self.tol            )
+        if self.intg_type in ["Radau", "BDF", "LSODA"]:
+            jac = self.jac
         else:
-            res = sp.integrate.solve_ivp( fun      = self.fun, 
-                                          y0       = self.bcVec, 
-                                          t_span   = timeSpan,
-                                          t_eval   = timeEval,
-                                          method   = self.intgType, 
-                                          rtol     = self.tol            )
-            
-        sFlag = res.success
+            jac = None
 
-        assert sFlag, 'Failed to solve the ODE!'
-        
-        assert res.y.shape[0] == nDims,  'Internal error!'
-        assert res.y.shape[1] == nTimes, 'Internal error!'
+        res = sp.integrate.solve_ivp(
+            fun=self.fun,
+            jac=jac,
+            y0=self.bc_vec,
+            t_span=time_span,
+            t_eval=time_eval,
+            method=self.intg_type,
+            rtol=self.tol,
+        )
 
-        if bkFlag:
-            self.sol = np.flip( res.y, 1 )
+        s_flag = res.success
+
+        assert s_flag, "Failed to solve the ODE!"
+
+        assert res.y.shape[0] == n_dims, "Internal error!"
+        assert res.y.shape[1] == n_times, "Internal error!"
+
+        if bk_flag:
+            self.sol = np.flip(res.y, 1)
         else:
             self.sol = res.y.copy()
 
-        return sFlag 
+        return s_flag
 
-    def getSol( self ):
+    def get_sol(self):
         return self.sol

@@ -1,211 +1,173 @@
-# ***********************************************************************
 # Import libraries
-# ***********************************************************************
-
 import sys
 import os
 import time
 import numpy as np
 import scipy as sp
-
 from scipy.integrate import trapz
+from ode_base import OdeBase
 
-from ode_base import OdeBaseConst, OdeBase
-
-# ***********************************************************************
 # OdeGeoConst: Geodesic ODE solver; 1st order; const. curv.
-# ***********************************************************************
+class OdeGeoConst(OdeBase):
+    def fun(self, t, y):
+        n_dims = self.n_dims
+        gamma = self.gamma
+        time_inc = self.time_inc
+        n_times = self.n_times
 
-class OdeGeoConst( OdeBaseConst ):
-
-    def fun( self, t, y ):
-
-        nDims    = self.nDims
-        Gamma    = self.Gamma
-        timeInc  = self.timeInc
-        nTimes   = self.nTimes
-        srcTerm  = self.srcTerm
-        srcVec   = np.zeros( shape = ( nDims ) , dtype = 'd' )
-        tsId     = int( t / timeInc )
-
-        if srcTerm is not None and tsId < nTimes:
-            for m in range( nDims ):
-                srcVec[m] = srcTerm[m][tsId]
-                
-        vals = -np.tensordot( Gamma,
-                              np.tensordot( y, y, axes = 0 ),
-                              ( ( 1, 2 ), ( 0, 1 ) ) )
-        vals += srcVec
-        
-        return vals
-
-    def jac( self, t, y ):
-                       
-        nDims    = self.nDims
-        Gamma    = self.Gamma
-
-        vals = -2.0 * np.tensordot( Gamma, y, axes = ( (2), (0) ) )
+        vals = -np.tensordot(
+            gamma, np.tensordot(y, y, axes=0), ((1, 2), (0, 1))
+        )
 
         return vals
 
-# ***********************************************************************
+    def jac(self, t, y):
+        n_dims = self.n_dims
+        gamma = self.gamma
+
+        vals = -2.0 * np.tensordot(gamma, y, axes=((2), (0)))
+
+        return vals
+
+
 # OdeAdjConst: Adjoint Geodesic solver; constant curvature
-# ***********************************************************************
+class OdeAdjConst(OdeBase):
+    def fun(self, t, v):
 
-class OdeAdjConst( OdeBaseConst ):
+        n_dims = self.n_dims
+        gamma = self.gamma
+        time_inc = self.time_inc
+        n_times = self.n_times
+        act_sol = self.act_sol
+        adj_sol = self.adj_sol
 
-    def fun( self, t, v ):
+        vals = np.zeros(shape=(n_dims), dtype="d")
+        ts_id = int(t / time_inc)
 
-        nDims    = self.nDims
-        Gamma    = self.Gamma
-        timeInc  = self.timeInc
-        nTimes   = self.nTimes
-        actSol   = self.actSol
-        adjSol   = self.adjSol
-        varCoefs = self.varCoefs
-        atnCoefs = self.atnCoefs
+        assert ts_id < n_times, "ts_id should be smaller than n_times!"
 
-        vals     = np.zeros( shape = ( nDims ) , dtype = 'd' )
-        tsId     = int( t / timeInc )
+        adj_vec = np.zeros(shape=(n_dims), dtype="d")
+        act_vec = np.zeros(shape=(n_dims), dtype="d")
 
-        assert tsId < nTimes, 'tsId should be smaller than nTimes!'
+        for a in range(n_dims):
+            adj_vec[a] = adj_sol[a][ts_id]
+            act_vec[a] = act_sol[a][ts_id]
 
-        adjVec  = np.zeros( shape = ( nDims ), dtype = 'd' )
-        actVec  = np.zeros( shape = ( nDims ), dtype = 'd' )        
-
-        for a in range( nDims ):
-            adjVec[a] = adjSol[a][tsId]
-            actVec[a] = actSol[a][tsId]
-
-        vals = 2.0 * np.tensordot( Gamma,
-                                   np.tensordot( v, adjVec, axes = 0 ),
-                                   ( ( 0, 2 ), ( 0, 1 ) ) ) + \
-                                   atnCoefs[tsId] * varCoefs * \
-                                   ( adjVec - actVec )
-        
-        return vals
-
-    def jac( self, t, v ):
-
-        nDims   = self.nDims
-        timeInc = self.timeInc
-        nTimes  = self.nTimes
-        Gamma   = self.Gamma
-        adjSol  = self.adjSol
-
-        vals    = np.zeros( shape = ( nDims, nDims ), dtype = 'd' )
-        tsId    = int( t / timeInc )
- 
-        assert tsId < nTimes, 'tsId should be smaller than nTimes!'
-
-        adjVec  = np.zeros( shape = ( nDims ), dtype = 'd' )
-
-        for a in range( nDims ):
-            adjVec[a] = adjSol[a][tsId]
-
-        vals = 2.0 * np.tensordot( Gamma, adjVec, ( (2), (0) ) )
-        vals = np.transpose( vals )
+        vals = 2.0 * np.tensordot(
+            gamma, np.tensordot(v, adj_vec, axes=0), ((0, 2), (0, 1))
+        ) + (adj_vec - act_vec)
 
         return vals
 
-# ***********************************************************************
-# OdeGeoNN: Geodesic ODE solver; Geo-NN model
-# ***********************************************************************
+    def jac(self, t, v):
 
+        n_dims = self.n_dims
+        time_inc = self.time_inc
+        n_times = self.n_times
+        gamma = self.gamma
+        adj_sol = self.adj_sol
+
+        vals = np.zeros(shape=(n_dims, n_dims), dtype="d")
+        ts_id = int(t / time_inc)
+
+        assert ts_id < n_times, "ts_id should be smaller than n_times!"
+
+        adj_vec = np.zeros(shape=(n_dims), dtype="d")
+
+        for a in range(n_dims):
+            adj_vec[a] = adj_sol[a][ts_id]
+
+        vals = 2.0 * np.tensordot(gamma, adj_vec, ((2), (0)))
+        vals = np.transpose(vals)
+
+        return vals
+
+
+# OdeGeo: Geodesic ODE solver
 class OdeGeo(OdeBase):
+    def fun(self, t, y):
 
-    def fun( self, t, y ):
+        n_dims = self.n_dims
+        time_inc = self.time_inc
+        n_times = self.n_times
+        ts_id = int(t / time_inc)
+        gamma = self.gamma
 
-        nDims    = self.nDims
-        timeInc  = self.timeInc
-        nTimes   = self.nTimes
-        srcTerm  = self.srcTerm
-        srcVec   = np.zeros( shape = ( nDims ) , dtype = 'd' )
-        tsId     = int( t / timeInc )
-        Gamma    = self.Gamma
-
-        if srcTerm is not None and tsId < nTimes:
-            for m in range( nDims ):
-                srcVec[m] = srcTerm[m][tsId]
-                
-        vals = -np.tensordot( Gamma[tsId],
-                              np.tensordot( y, y, axes = 0 ),
-                              ( ( 1, 2 ), ( 0, 1 ) ) )
-        vals += srcVec
-        
-        return vals
-
-    def jac( self, t, y ):
-                       
-        nDims    = self.nDims
-        timeInc  = self.timeInc
-        tsId     = int( t / timeInc )
-        Gamma    = self.Gamma
-
-        vals = -2.0 * np.tensordot( Gamma[tsId], y, axes = ( (2), (0) ) )
+        vals = -np.tensordot(
+            gamma[ts_id], np.tensordot(y, y, axes=0), ((1, 2), (0, 1))
+        )
 
         return vals
 
-# ***********************************************************************
-# OdeAdjNN: Adjoint Geodesic solver; Geo-NN model
-# ***********************************************************************
+    def jac(self, t, y):
 
+        n_dims = self.n_dims
+        time_inc = self.time_inc
+        ts_id = int(t / time_inc)
+        gamma = self.gamma
+
+        vals = -2.0 * np.tensordot(gamma[ts_id], y, axes=((2), (0)))
+
+        return vals
+
+
+# OdeAdj: Adjoint Geodesic solver
 class OdeAdj(OdeBase):
+    def fun(self, t, v):
 
-    def fun( self, t, v ):
+        n_dims = self.n_dims
+        time_inc = self.time_inc
+        n_times = self.n_times
+        act_sol = self.act_sol
+        adj_sol = self.adj_sol
 
-        nDims    = self.nDims
-        timeInc  = self.timeInc
-        nTimes   = self.nTimes
-        actSol   = self.actSol
-        adjSol   = self.adjSol
-        varCoefs = self.varCoefs
-        atnCoefs = self.atnCoefs
+        ts_id = int(t / time_inc)
+        gamma = self.gamma
 
-        tsId     = int( t / timeInc )
-        Gamma    = self.Gamma
+        vals = np.zeros(shape=(n_dims), dtype="d")
+        ts_id = int(t / time_inc)
 
-        vals     = np.zeros( shape = ( nDims ) , dtype = 'd' )
-        tsId     = int( t / timeInc )
+        assert ts_id < n_times, "ts_id should be smaller than n_times!"
 
-        assert tsId < nTimes, 'tsId should be smaller than nTimes!'
+        adj_vec = np.zeros(shape=(n_dims), dtype="d")
+        act_vec = np.zeros(shape=(n_dims), dtype="d")
 
-        adjVec  = np.zeros( shape = ( nDims ), dtype = 'd' )
-        actVec  = np.zeros( shape = ( nDims ), dtype = 'd' )        
+        for a in range(n_dims):
+            adj_vec[a] = adj_sol[a][ts_id]
+            act_vec[a] = act_sol[a][ts_id]
 
-        for a in range( nDims ):
-            adjVec[a] = adjSol[a][tsId]
-            actVec[a] = actSol[a][tsId]
-
-        vals = 2.0 * np.tensordot( Gamma[tsId],
-                                   np.tensordot( v, adjVec, axes = 0 ),
-                                   ( ( 0, 2 ), ( 0, 1 ) ) ) + \
-                                   atnCoefs[tsId] * varCoefs * \
-                                   ( adjVec - actVec )
-        
-        return vals
-
-    def jac( self, t, v ):
-
-        nDims   = self.nDims
-        timeInc = self.timeInc
-        nTimes  = self.nTimes
-        adjSol  = self.adjSol
-
-        vals    = np.zeros( shape = ( nDims, nDims ), dtype = 'd' )
-        tsId    = int( t / timeInc )
- 
-        assert tsId < nTimes, 'tsId should be smaller than nTimes!'
-
-        Gamma    = self.Gamma
-        
-        adjVec  = np.zeros( shape = ( nDims ), dtype = 'd' )
-
-        for a in range( nDims ):
-            adjVec[a] = adjSol[a][tsId]
-
-        vals = 2.0 * np.tensordot( Gamma[tsId], adjVec, ( (2), (0) ) )
-        vals = np.transpose( vals )
+        vals = (
+            2.0
+            * np.tensordot(
+                gamma[ts_id],
+                np.tensordot(v, adj_vec, axes=0),
+                ((0, 2), (0, 1)),
+            )
+            + (adj_vec - act_vec)
+        )
 
         return vals
-    
+
+    def jac(self, t, v):
+
+        n_dims = self.n_dims
+        time_inc = self.time_inc
+        n_times = self.n_times
+        adj_sol = self.adj_sol
+
+        vals = np.zeros(shape=(n_dims, n_dims), dtype="d")
+        ts_id = int(t / time_inc)
+
+        assert ts_id < n_times, "ts_id should be smaller than n_times!"
+
+        gamma = self.gamma
+
+        adj_vec = np.zeros(shape=(n_dims), dtype="d")
+
+        for a in range(n_dims):
+            adj_vec[a] = adj_sol[a][ts_id]
+
+        vals = 2.0 * np.tensordot(gamma[ts_id], adj_vec, ((2), (0)))
+        vals = np.transpose(vals)
+
+        return vals
