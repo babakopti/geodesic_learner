@@ -122,7 +122,15 @@ class GeodesicLearner():
         self.n_params = None
         self.params = None
         self.bc_vec = None
-        self.X = None
+        self.act_sol = None
+
+        if verbose:
+            level = logging.INFO
+        else:
+            level = logging.CRITICAL
+            
+        self.logger = get_logger("geodesic", level)
+            
         
     def fit(self, X: np.array, y=None):
         """
@@ -139,8 +147,9 @@ class GeodesicLearner():
         |      -------
         |      None
         """
-        pass
-
+        self._prep(X)
+        self._set_params()
+        
     def predict(
         self,
         start_time: float,
@@ -169,10 +178,10 @@ class GeodesicLearner():
         |      -------
         |      array, shape = (n_times, n_dims).
         """
-        pass
+        assert self.params is not None
 
-    def _prep_params(self, X):
-        
+    def _prep(self, X):
+
         n_times = X.shape[0]
         n_dims = X.shape[1]
 
@@ -210,7 +219,151 @@ class GeodesicLearner():
                 assert False
                 
             self.params[m + n_gamma_vec] = self.bc_vec[m]
+
+        self.act_sol = X.transpose()
         
-    def get_params(self):
-        pass
+    def _set_params(self):
+
+        t0 = time.time()
+        
+        self.logger.info(
+            "Running continuous adjoint optimization to set Christoffel symbols..."
+        )
+
+        options  = {
+            "ftol": self.opt_tol,
+            'maxiter': self.max_opt_iters,
+            "disp": True,
+        }
+
+        try:
+            bounds = [(-1.0, 1.0) for i in range(self.n_params)]
+            optObj = scipy.optimize.minimize(
+                fun=self._get_obj_func, 
+                x0=self.params,
+                method=self.opt_type, 
+                jac=self._get_grad,
+                bounds=bounds,
+                options=options,
+            )
+            sFlag = optObj.success
     
+            self.params = optObj.x
+
+            self.logger.info("Success: %s", str(sFlag))
+
+        except Exception as exc:
+            self.logger.error(exc)
+            sFlag = False
+
+        self.logger.info(
+            "Setting parameters took %0.2f seconds.", 
+            time.time() - t0,
+        )
+    
+    def _get_obj_func(self, params):
+
+        # Get solution
+        sol = self._get_geo_sol(params)
+        
+        if sol is None:
+            return np.inf
+
+        # Calculate the objective function
+        tmp_vec = np.zeros(shape=(self.n_times))
+        for m in range(self.n_dims):
+            tmp_vec += (sol[m][:] - act_sol[m][:])**2 
+
+        val = 0.5 * trapz(tmp_vec, dx=1.0)
+
+        # Add regularization term based on gamma
+        n_gamma_vec = self.n_params - self.n_dims
+        tmp1 = np.linalg.norm(params[:n_gamma_vec], 1)
+        tmp2 = np.linalg.norm(params[:n_gamma_vec])
+        val += self.alpha * (
+            self.l1_ratio * tmp1 + (1.0 - self.l1_ratio) * tmp2**2
+        )
+
+        del sol
+        del tmp_vec
+        
+        gc.collect()
+
+        return val
+
+    def _get_geo_sol(self, params):
+
+        nDims    = self.nDims
+        nSteps   = self.nSteps
+
+        if self.endBcFlag:
+            bcTime = nSteps   
+        else:
+            bcTime = 0.0
+
+        nGammaVec = self.nParams - nDims
+        GammaVec = params[:nGammaVec]
+        bcVec = params[nGammaVec:]
+        
+        Gamma = self.getGammaArray(GammaVec)
+
+        self.logger.debug( 'Solving geodesic...' )
+
+        odeObj   = OdeGeoConst( Gamma    = Gamma,
+                                bcVec    = bcVec,
+                                bcTime   = bcTime,
+                                timeInc  = 1.0,
+                                nSteps   = self.nSteps,
+                                intgType = 'LSODA',
+                                tol      = GEO_TOL,
+                                srcCoefs = self.srcCoefs,
+                                srcTerm  = self.srcTerm,
+                                verbose  = self.verbose       )
+
+        sFlag = odeObj.solve()
+
+        if not sFlag:
+            self.logger.warning( 'Geodesic equation did not converge!' )
+            return None
+        
+        return odeObj
+    
+    def _get_adj_sol( self, params, ode_obj ):
+
+        nDims    = self.nDims
+
+        nGammaVec = self.nParams - nDims
+        GammaVec = params[:nGammaVec]
+        
+        Gamma    = self.getGammaArray( GammaVec )
+        sol      = odeObj.getSol()
+        bcVec    = np.zeros( shape = ( nDims ), dtype = 'd' )
+        bkFlag   = not self.endBcFlag
+
+        self.logger.debug( 'Solving adjoint geodesic equation...' )
+
+        adjOdeObj = OdeAdjConst( Gamma    = Gamma,
+                                 bcVec    = bcVec,
+                                 bcTime    = 0.0,
+                                 timeInc   = 1.0,
+                                 nSteps    = self.nSteps,
+                                 intgType  = 'RK45',
+                                 actSol    = self.actSol,
+                                 adjSol    = sol,
+                                 tol       = ADJ_TOL,
+                                 varCoefs  = self.varCoefs,
+                                 atnCoefs  = self.atnCoefs,
+                                 verbose   = self.verbose       )
+
+        sFlag  = adjOdeObj.solve()
+
+        if not sFlag:
+            self.logger.warning( 'Adjoint equation did not converge!' )
+            return None
+
+        self.statHash[ 'adjOdeTime' ] += time.time() - t0
+
+        self.logger.debug( 'Adjoint equation: %0.2f seconds.', 
+                           time.time() - t0 ) 
+
+        return adjOdeObj
