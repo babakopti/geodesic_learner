@@ -26,7 +26,7 @@ class GeodesicLearner:
         ode_adj_solver: str = "RK45",
         ode_geo_tol: float = 1.0e-2,
         ode_adj_tol: float = 1.0e-2,
-        ode_bc_mode: str = "end",
+        ode_bc_mode: str = "end_bc",
         alpha: float = 0.0,
         l1_ratio: float = 0.0,
         diagonal_metric: bool = True,
@@ -70,7 +70,7 @@ class GeodesicLearner:
         |
         |      ode_bc_mode: str
         |          Mode of boundary condition during training.
-        |          Allowed values are "end" and "start". Default is "end".
+        |          Allowed values are "end_bc" and "start_bc". Default is "end_bc".
         |
         |      alpha: float
         |          Regularization strength. Default is 0.
@@ -138,7 +138,7 @@ class GeodesicLearner:
         |      -------
         |      None
         """
-        self._prep(X)
+        self._init_params(X)
         self._set_params()
 
     def predict(
@@ -171,7 +171,7 @@ class GeodesicLearner:
         """
         assert self.params is not None
 
-    def _prep(self, X):
+    def _init_params(self, X):
 
         n_times = X.shape[0]
         n_dims = X.shape[1]
@@ -203,9 +203,9 @@ class GeodesicLearner:
         n_gamma_vec = self.n_params - self.n_dims
 
         for m in range(self.n_dims):
-            if self.ode_bc_mode == "end":
+            if self.ode_bc_mode == "end_bc":
                 self.params[m + n_gamma_vec] = X[self.n_times - 1][m]
-            elif self.ode_bc_mode == "start":
+            elif self.ode_bc_mode == "start_bc":
                 self.params[m + n_gamma_vec] = X[0][m]
             else:
                 assert False
@@ -264,7 +264,7 @@ class GeodesicLearner:
         # Calculate the objective function
         tmp_vec = np.zeros(shape=(self.n_times))
         for m in range(self.n_dims):
-            tmp_vec += (sol[m][:] - act_sol[m][:]) ** 2
+            tmp_vec += (sol[m][:] - self.act_sol[m][:]) ** 2
 
         val = 0.5 * trapz(tmp_vec, dx=1.0)
 
@@ -283,30 +283,103 @@ class GeodesicLearner:
 
         return val
 
+    def _get_grad_const(self, params):
+
+        n_dims = self.n_dims
+        n_times = self.n_times
+        alpha = self.alpha
+        l1_ratio = self.l1_ratio
+        time_inc = 1.0
+        xi = lambda a, b: 1.0 if a == b else 2.0
+        grad = np.zeros(shape=(self.n_params), dtype="d")
+
+        sol = self._get_geo_sol(params)
+        adj_sol = self._get_adj_sol(params, sol)
+
+        gamma_id = 0
+        for r in range(n_dims):
+            for p in range(n_dims):
+                for q in range(p, n_dims):
+
+                    if (
+                        self.diagonal_metric
+                        and r != p
+                        and r != q
+                        and p != q
+                    ):
+                        continue
+                    if (not self.self_relation) and r == p and p == q:
+                        continue
+
+                    tmp_vec = xi(p, q) * np.multiply(sol[p][:], sol[q][:])
+                    tmp_vec = np.multiply(tmp_vec, adj_sol[r][:])
+
+                    grad[gamma_id] = trapz(
+                        tmp_vec, dx=time_inc
+                    ) + alpha * (
+                        l1_ratio * np.sign(params[gamma_id])
+                        + (1.0 - l1_ratio) * 2.0 * params[gamma_id]
+                    )
+
+                    gamma_id += 1
+
+        del sol
+        del tmp_vec
+
+        gc.collect()
+
+        n_gamma_vec = self.n_params - n_dims
+        gamma_vec = params[:n_gamma_vec]
+
+        tmp1 = np.linalg.norm(gamma_vec)
+        tmp2 = np.linalg.norm(grad)
+
+        fct = 1.0
+        if tmp2 > 0:
+            fct = min(
+                1.0, math.sqrt(abs(tmp1 ** 2 - n_gamma_vec) / tmp2 ** 2)
+            )
+
+        for i in range(n_dims):
+            if self.ode_bc_mode == "end_bc":
+                grad[i + n_gamma_vec] = adj_sol[i][-1]
+            else:
+                grad[i + n_gamma_vec] = -adj_sol[i][0]
+
+        grad = fct * grad
+
+        del adj_sol
+
+        gc.collect()
+        
+        return grad
+
     def _get_geo_sol(self, params):
 
-        nDims = self.nDims
-        nSteps = self.nSteps
+        n_steps = self.n_times - 1
 
-        if self.ode_bc_mode == "end":
-            bc_time = nSteps
+        if self.ode_bc_mode == "end_bc":
+            bc_time = n_steps
+            bk_flag = True
         else:
             bc_time = 0.0
+            bk_flag = False
 
         n_gamma_vec = self.n_params - self.n_dims
         gamma_vec = params[:n_gamma_vec]
         bc_vec = params[n_gamma_vec:]
 
-        gamma = self.get_gamma(gamma_vec)
+        gamma = self._get_gamma(gamma_vec)
 
         if self.manifold_type == "const_curvature":
             ode_obj = OdeGeoConst(
-                Gamma=gamma,
-                bcVec=bc_vec,
-                bcTime=bc_time,
-                timeInc=1.0,
-                nSteps=self.n_times - 1,
-                intgType=self.ode_geo_solver,
+                gamma=gamma,
+                bc_vec=bc_vec,
+                bc_time=bc_time,
+                time_inc=1.0,
+                n_steps=n_steps,
+                bk_flag=bk_flag,
+                intg_type=self.ode_geo_solver,
                 tol=self.ode_geo_tol,
             )
         else:
@@ -315,7 +388,8 @@ class GeodesicLearner:
                 bc_vec=bc_vec,
                 bc_time=bc_time,
                 time_inc=1.0,
-                n_steps=self.n_times - 1,
+                n_steps=n_steps,
+                bk_flag=bk_flag,
                 intg_type=self.ode_geo_solver,
                 tol=self.ode_geo_tol,
             )
@@ -330,26 +404,46 @@ class GeodesicLearner:
 
     def _get_adj_sol(self, params, geo_sol):
 
-        n_dims = self.n_dims
+        n_steps = self.n_times - 1
 
-        n_gamma_vec = self.n_params - n_dims
+        n_gamma_vec = self.n_params - self.n_dims
         gamma_vec = params[:n_gamma_vec]
-        gamma = self.get_gamma(gamma_vec)
-        
-        bc_vec = np.zeros(shape=(n_dims), dtype="d")
-        bkFlag = not self.endBcFlag
+        gamma = self._get_gamma(gamma_vec)
+        bc_vec = np.zeros(shape=(self.n_dims), dtype="d")
 
-        adj_ode_obj = OdeAdjConst(
-            gamma=gamma,
-            bc_vec=bc_vec,
-            bc_time=0.0,
-            time_inc=1.0,
-            n_steps=self.n_times + 1,
-            intg_type=self.ode_adj_solver,
-            act_sol=self.act_sol,
-            adj_sol=geo_sol,
-            tol=self.ode_adj_tol,
-        )
+        if self.ode_bc_mode == "end_bc":
+            bc_time = 0.0
+            bk_flag = False
+        else:
+            bc_time = n_steps
+            bk_flag = True
+
+        if self.manifold_type == "const_curvature":
+            adj_ode_obj = OdeAdjConst(
+                gamma=gamma,
+                bc_vec=bc_vec,
+                bc_time=bc_time,
+                time_inc=1.0,
+                n_steps=n_steps,
+                bk_flag=bk_flag,
+                intg_type=self.ode_adj_solver,
+                tol=self.ode_adj_tol,
+                act_sol=self.act_sol,
+                adj_sol=geo_sol,
+            )
+        else:
+            adj_ode_obj = OdeAdj(
+                gamma=gamma,
+                bc_vec=bc_vec,
+                bc_time=bc_time,
+                time_inc=1.0,
+                n_steps=n_steps,
+                bk_flag=bk_flag,
+                intg_type=self.ode_adj_solver,
+                tol=self.ode_adj_tol,
+                act_sol=self.act_sol,
+                adj_sol=geo_sol,
+            )
 
         s_flag = adj_ode_obj.solve()
 
@@ -358,3 +452,76 @@ class GeodesicLearner:
             return None
 
         return adj_ode_obj.get_sol()
+
+    def _get_gamma(self, gamma_vec):
+
+        if self.manifold_type == "const_curvature":
+            return self._get_gamma_const(gamma_vec)
+        else:
+            return self._get_gamma_var(gamma_vec)
+
+    def _get_gamma_const(self, gamma_vec):
+
+        n_dims = self.n_dims
+        n_times = self.n_times
+        gamma = np.zeros(shape=(n_dims, n_dims, n_dims), dtype="d")
+
+        gamma_id = 0
+        for m in range(n_dims):
+            for a in range(n_dims):
+                for b in range(a, n_dims):
+
+                    if (
+                        self.diagonal_metric
+                        and m != a
+                        and m != b
+                        and a != b
+                    ):
+                        continue
+                    elif (not self.srel_relation) and m == a and a == b:
+                        continue
+                    else:
+                        gamma[m][a][b] = gamma_vec[gamma_id]
+                        gamma[m][b][a] = gamma_vec[gamma_id]
+                        gamma_id += 1
+
+        return gamma
+
+    def _get_gamma_var(self, gamma_vec):
+
+        n_dims = self.n_dims
+        n_times = self.n_times
+        gamma = np.zeros(
+            shape=(n_times, n_dims, n_dims, n_dims), dtype="d"
+        )
+
+        assert n_times > 0, "Number of times should be positive!"
+
+        n_tmp = int(len(gamma_vec) / n_times)
+
+        gamma_id = 0
+        for m in range(n_dims):
+            for a in range(n_dims):
+                for b in range(a, n_dims):
+
+                    if (
+                        self.diagonal_metric
+                        and m != a
+                        and m != b
+                        and a != b
+                    ):
+                        continue
+                    elif (not self.self_relation) and m == a and a == b:
+                        continue
+                    else:
+                        for ts_id in range(self.n_times):
+                            gamma[ts_id][m][a][b] = gamma_vec[
+                                ts_id * n_tmp + gamma_id
+                            ]
+                            gamma[ts_id][m][b][a] = gamma_vec[
+                                ts_id * n_tmp + gamma_id
+                            ]
+
+                    gamma_id += 1
+
+        return gamma

@@ -13,11 +13,12 @@ class OdeBase:
         bc_time,
         time_inc,
         n_steps,
+        bk_flag,
         intg_type="LSODA",
-        act_sol=None,
-        adj_sol=None,
         tol=1.0e-4,
         n_max_iters=20,
+        act_sol=None,
+        adj_sol=None,
     ):
 
         n_dims = len(bc_vec)
@@ -39,6 +40,7 @@ class OdeBase:
         self.n_dims = n_dims
         self.time_inc = time_inc
         self.n_steps = n_steps
+        self.bk_flag = bk_flag
         self.intg_type = intg_type
         self.act_sol = act_sol
         self.adj_sol = adj_sol
