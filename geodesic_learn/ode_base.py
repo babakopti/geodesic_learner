@@ -8,7 +8,8 @@ import scipy as sp
 class OdeBase:
     def __init__(
         self,
-        gamma,
+        n_dims,
+        ode_params,
         bc_vec,
         bc_time,
         time_inc,
@@ -21,20 +22,17 @@ class OdeBase:
         adj_sol=None,
     ):
 
-        n_dims = len(bc_vec)
         n_times = n_steps + 1
 
         assert bc_time >= 0, "BC time should be >= 0!"
 
         if act_sol is not None:
-            assert act_sol.shape[0] == n_dims, "Incorrect act_sol size!"
             assert act_sol.shape[1] == n_times, "Incorrect act_sol size!"
 
         if adj_sol is not None:
-            assert adj_sol.shape[0] == n_dims, "Incorrect adj_sol size!"
             assert adj_sol.shape[1] == n_times, "Incorrect adj_sol size!"
 
-        self.gamma = gamma
+        self.ode_params = ode_params
         self.bc_vec = bc_vec
         self.bc_time = bc_time
         self.n_dims = n_dims
@@ -93,7 +91,6 @@ class OdeBase:
 
         assert s_flag, "Failed to solve the ODE!"
 
-        assert res.y.shape[0] == n_dims, "Internal error!"
         assert res.y.shape[1] == n_times, "Internal error!"
 
         if bk_flag:

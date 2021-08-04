@@ -8,11 +8,11 @@ from sklearn.preprocessing import MinMaxScaler
 sys.path.append("..")
 
 from models import GeodesicLearner
-from ode import OdeGeoConst
+from ode import OdeGeoConstOrd1
 
 # Instantiate
 geodesic_learner = GeodesicLearner(
-    manifold_type="const_curvature",
+    manifold_type="const_curvature_first_order",
     opt_method="SLSQP",
     max_opt_iters=300,
     opt_tol=1.0e-8,
@@ -39,8 +39,9 @@ geodesic_learner.n_params = n_gamma_vec + n_dims
 gamma1 = geodesic_learner._get_gamma(params)
 bc_vec = np.ones(shape=(n_dims))
 
-ode_obj = OdeGeoConst(
-    gamma=gamma1,
+ode_obj = OdeGeoConstOrd1(
+    n_dims=n_dims,
+    ode_params=gamma1,
     bc_vec=bc_vec,
     bc_time=n_steps,
     time_inc=1.0,

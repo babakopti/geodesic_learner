@@ -9,16 +9,16 @@ sys.path.append("..")
 
 from models import GeodesicLearner
 
-# df = pd.read_pickle("data/dfFile_2021-02-01 09:30:04.pkl")
+df = pd.read_pickle("data/dfFile_2021-02-01 09:30:04.pkl")
 
-# df["Date"] = df["Date"].apply(lambda x: pd.to_datetime(x).date())
-# df = df.groupby("Date", as_index=False).mean()
-# df = df.interpolate(method="linear")
-# df = df.dropna()
-# min_trn_date = pd.to_datetime("2020-02-05 09:00:00")
-# max_trn_date = pd.to_datetime("2020-12-31 09:00:00")
+df["Date"] = df["Date"].apply(lambda x: pd.to_datetime(x).date())
+df = df.groupby("Date", as_index=False).mean()
+df = df.interpolate(method="linear")
+df = df.dropna()
+min_trn_date = pd.to_datetime("2020-02-05 09:00:00")
+max_trn_date = pd.to_datetime("2020-12-31 09:00:00")
 
-# df = df[(df.Date >= min_trn_date) & (df.Date <= max_trn_date)]
+df = df[(df.Date >= min_trn_date) & (df.Date <= max_trn_date)]
 
 col_names = [
     "SPY",
@@ -28,15 +28,15 @@ col_names = [
     "UST",
 ]
 
-#X = np.array(df[col_names])
+X = np.array(df[col_names])
 
-#scaler = MinMaxScaler()
-#X = scaler.fit_transform(X)
+scaler = MinMaxScaler()
+X = scaler.fit_transform(X)
 
-X = np.load("data/X_test_1.npy")
+#X = np.load("data/X_test_1.npy")
 
 geodesic_learner = GeodesicLearner(
-    manifold_type="const_curvature",
+    manifold_type="const_curvature_first_order",
     opt_method="SLSQP",
     max_opt_iters=300,
     opt_tol=1.0e-8,
