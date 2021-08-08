@@ -292,12 +292,12 @@ class GeodesicLearner:
         }
 
         try:
-            #bounds = [(-1.0, 1.0) for i in range(self.n_params)]
+            #bounds = [(-1, 1) for i in range(self.n_params)]
             opt_obj = scipy.optimize.minimize(
                 fun=self._get_obj_func,
                 x0=self.params,
                 method=self.opt_method,
-                jac=None, #self._get_grad,
+                jac=self._get_grad,
                 #bounds=bounds,
                 options=options,
             )
@@ -334,7 +334,11 @@ class GeodesicLearner:
         val = 0.5 * trapz(tmp_vec, dx=1.0)
 
         # Add regularization term based on gamma
-        n_gamma_vec = self.n_params - self.n_dims
+        if self.manifold_type != c.CONST_CURVATURE_ORD1:
+            n_gamma_vec = self.n_params - self.n_dims
+        else:
+            n_gamma_vec = self.n_params - 2 * self.n_dims
+            
         tmp1 = np.linalg.norm(params[:n_gamma_vec], 1)
         tmp2 = np.linalg.norm(params[:n_gamma_vec])
         val += self.alpha * (
@@ -369,7 +373,8 @@ class GeodesicLearner:
 
         sol = self._get_geo_sol(params)
         adj_sol = self._get_adj_sol(params, sol)
-
+        gamma = self._get_gamma(params)
+        
         gamma_id = 0
         for r in range(n_dims):
             for p in range(n_dims):
@@ -401,7 +406,6 @@ class GeodesicLearner:
 
                     gamma_id += 1
 
-        del sol
         del tmp_vec
 
         gc.collect()
@@ -422,18 +426,34 @@ class GeodesicLearner:
                 1.0, math.sqrt(abs(tmp1 ** 2 - n_gamma_vec) / tmp2 ** 2)
             )
 
-        for i in range(n_dims):
-            if self.ode_bc_mode == c.END_BC:
-                grad[i + n_gamma_vec] = adj_sol[i][-1]
-                if self.manifold_type != c.CONST_CURVATURE_ORD1:
-                    grad[i + n_gamma_vec + n_dims] = adj_sol[i + n_dims][-1]
-            else:
-                grad[i + n_gamma_vec] = -adj_sol[i][0]
-                if self.manifold_type != c.CONST_CURVATURE_ORD1:
-                    grad[i + n_gamma_vec + n_dims] = adj_sol[i + n_dims][0]
+        if self.ode_bc_mode == c.END_BC:
+            bc_ind = -1
+            bc_fct = 1.0
+        else:
+            bc_ind = 0
+            bc_fct = -1.0
+
+        if self.manifold_type == c.CONST_CURVATURE_ORD1:
+            for i in range(n_dims):
+                grad[i + n_gamma_vec] = bc_fct * adj_sol[i][bc_ind]
+        elif self.manifold_type == c.CONST_CURVATURE_ORD2:
+            tmp_vec1 = np.empty(shape=(n_dims), dtype="d")
+            tmp_vec2 = np.empty(shape=(n_dims), dtype="d")
+            
+            for i in range(n_dims):
+                tmp_vec1[i] = adj_sol[i][bc_ind]
+                tmp_vec2[i] = sol[i + n_dims][bc_ind]
+                
+            tmp_vec3 = np.tensordot(
+                gamma, np.tensordot(tmp_vec1, tmp_vec2, axes=0), ((0, 1), (0, 1))
+            )
+            for i in range(n_dims):
+                grad[i + n_gamma_vec] = bc_fct * (-adj_sol[i + n_dims][bc_ind] + 2.0 * tmp_vec3[i])
+                grad[i + n_gamma_vec + n_dims] = bc_fct * adj_sol[i][bc_ind]
 
         grad = fct * grad
 
+        del sol        
         del adj_sol
 
         gc.collect()
