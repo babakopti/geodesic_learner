@@ -20,24 +20,24 @@ n_steps = n_times - 1
 
 u0 = 8.0
 v0 = 0.0
-xi0 = -0.2
+xi0 = 0.2
 eta0 = 0.0
 
 alpha = -1.0
 beta = 1.0
 
-params = [alpha, beta]
+params1 = [alpha, beta]
 
-# Use quadratic ODE solver
+# Generate training data
 bc_vec = np.array([u0, v0, xi0, eta0])
 ode_obj = OdeGeoQuadratic(
     n_dims=n_dims,
-    ode_params=params,
+    ode_params=params1,
     bc_vec=bc_vec,
-    bc_time=0.0,
+    bc_time=n_steps,
     time_inc=1.0,
     n_steps=n_steps,
-    bk_flag=False,
+    bk_flag=True,
     intg_type="LSODA",
     tol=1.0e-6,
 )
@@ -66,4 +66,31 @@ ax.plot_surface(
 
 plt.show()
 
+X = np.empty(shape=(n_times, n_dims))
+for m in range(n_dims):
+    for ts_id in range(n_times):
+        X[ts_id][m] = sol[m][ts_id]
+
 # Train
+geodesic_learner = GeodesicLearner(
+    manifold_type="quadratic_surface",
+    opt_method="SLSQP",
+    max_opt_iters=300,
+    opt_tol=1.0e-8,
+    ode_geo_solver="LSODA",
+    ode_adj_solver="RK45",
+    ode_geo_tol=1.0e-6,
+    ode_adj_tol=1.0e-6,
+    ode_bc_mode="end_bc",
+    alpha=1.0e-8,
+    l1_ratio=0.0,
+    diagonal_metric=True,
+    self_relation=False,
+    verbose=True,
+)
+geodesic_learner.fit(X)
+
+params2 = geodesic_learner.params
+
+print("params1:", params1)
+print("params2:", params2)

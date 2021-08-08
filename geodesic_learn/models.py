@@ -313,25 +313,25 @@ class GeodesicLearner:
             "eps": 0.01,
         }
 
-        try:
+#        try:
             # bounds = [(-1, 1) for i in range(self.n_params)]
-            opt_obj = scipy.optimize.minimize(
+        opt_obj = scipy.optimize.minimize(
                 fun=self._get_obj_func,
                 x0=self.params,
                 method=self.opt_method,
                 jac=self._get_grad,
                 # bounds=bounds,
                 options=options,
-            )
-            s_flag = opt_obj.success
+        )
+        s_flag = opt_obj.success
 
-            self.params = opt_obj.x
+        self.params = opt_obj.x
 
-            self.logger.info("Success: %s", str(s_flag))
+        self.logger.info("Success: %s", str(s_flag))
 
-        except Exception as exc:
-            self.logger.error(exc)
-            s_flag = False
+        #except Exception as exc:
+        #    self.logger.error(exc)
+        #    s_flag = False
 
         self.logger.info(
             "Setting parameters took %0.2f seconds.",
@@ -488,11 +488,11 @@ class GeodesicLearner:
         adj_sol = self._get_adj_sol(params, sol)
         ode_params = self._get_ode_params(params)
 
-        fct = 1.0
+        tmp_vec0 = np.ones(shape=(n_times), dtype="d")
         for m in range(n_dims):
-            fct += (params[m] * y[m]) ** 2
-
-        fct = 1.0 / fct1
+            tmp_vec0 += (params[m] * sol[m][:]) ** 2
+            
+        tmp_vec0 = 1.0 / tmp_vec0
 
         tmp_vec1 = np.zeros(shape=(n_times), dtype="d")
         for m in range(n_dims):
@@ -505,9 +505,9 @@ class GeodesicLearner:
         for l in range(n_dims):
 
             tmp_vec = (
-                fct * tmp_vec1 * sol[l + n_dims][:] ** 2
-                + fct * tmp_vec2 * sol[l][:] * adj_sol[l][:]
-                - 2.0 * fct ** 2 * tmp_vec1 * tmp_vec2 * params[l] * sol[l][:] ** 2
+                tmp_vec0 * tmp_vec1 * sol[l + n_dims][:] ** 2
+                + tmp_vec0 * tmp_vec2 * sol[l][:] * adj_sol[l][:]
+                - 2.0 * tmp_vec0 ** 2 * tmp_vec1 * tmp_vec2 * params[l] * sol[l][:] ** 2
             )
 
             grad[l] = trapz(tmp_vec, dx=time_inc) + alpha * (
@@ -528,13 +528,13 @@ class GeodesicLearner:
         for r in range(n_dims):
             grad[r + n_dims] = bc_fct * (
                 -adj_sol[r + n_dims][bc_ind]
-                + 2.0 * fct * tmp_vec1[bc_ind] * params[r] * sol[r + n_dims][bc_ind]
+                + 2.0 * tmp_vec0[bc_ind] * tmp_vec1[bc_ind] * params[r] * sol[r + n_dims][bc_ind]
             )
             grad[r + 2 * n_dims] = bc_fct * adj_sol[r][bc_ind]
 
         del sol
         del adj_sol
-        del tmp_vec1
+        del tmp_vec0, tmp_vec1
 
         gc.collect()
 
@@ -681,7 +681,7 @@ class GeodesicLearner:
 
         if self.manifold_type in [c.CONST_CURVATURE_ORD1, c.CONST_CURVATURE_ORD2]:
             return self._get_gamma_const(params)
-        elif self.manifold_type == c.QUADRACTIC:
+        elif self.manifold_type == c.QUADRATIC:
             return params[: self.n_dims]
         else:
             assert False

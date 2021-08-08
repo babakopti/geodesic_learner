@@ -272,7 +272,7 @@ class OdeAdjQuadratic(OdeBase):
 
         fct = 1.0
         for m in range(n_dims):
-            fct += (params[m] * y[m]) ** 2
+            fct += (params[m] * adj_vec[m]) ** 2
 
         fct = 1.0 / fct
 
@@ -287,16 +287,16 @@ class OdeAdjQuadratic(OdeBase):
         tmp_vec2 = (
             2.0
             * fct
-            * np.tensordot(params * v[:n_dims], adj_sol[n_dims:], axes=((0), (0)))
+            * np.tensordot(params * v[:n_dims], adj_vec[n_dims:], axes=((0), (0)))
             * params
-            * adj_sol[n_dims:]
+            * adj_vec[n_dims:]
         )
 
-        tmp1 = np.tensordot(params * adj_sol[:n_dims], v[:n_dims], axes=((0), (0)))
+        tmp1 = np.tensordot(params * adj_vec[:n_dims], v[:n_dims], axes=((0), (0)))
         tmp2 = np.tensordot(
-            params ** 2, adj_sol[:n_dims] * ad_sol[n_dims:], axes=((0), (0))
+            params ** 2, adj_vec[:n_dims] * adj_vec[n_dims:], axes=((0), (0))
         )
-        tmp_vec3 = -4.0 * fct ** 2 * tmp1 * tmp2 * params * adj_sol[n_dims:]
+        tmp_vec3 = -4.0 * fct ** 2 * tmp1 * tmp2 * params * adj_vec[n_dims:]
 
         tmp_vec4 = -(adj_vec[:n_dims] - act_vec[:n_dims])
 
@@ -308,11 +308,24 @@ class OdeAdjQuadratic(OdeBase):
 
     def jac(self, t, v):
         n_dims = self.n_dims
+        time_inc = self.time_inc
+        n_times = self.n_times
+        adj_sol = self.adj_sol
+
+        ts_id = int(t / time_inc)
+
+        assert ts_id < n_times, "ts_id should be smaller than n_times!"
+        
         params = self.ode_params
 
+        adj_vec = np.zeros(shape=(2 * n_dims), dtype="d")
+
+        for a in range(2 * n_dims):
+            adj_vec[a] = adj_sol[a][ts_id]
+        
         fct = 1.0
         for m in range(n_dims):
-            fct += (params[m] * y[m]) ** 2
+            fct += (params[m] * adj_vec[m]) ** 2
 
         fct = 1.0 / fct
 
@@ -322,23 +335,23 @@ class OdeAdjQuadratic(OdeBase):
         tmp_vec1 = (
             2.0
             * fct
-            * np.tensordot(params * adj_sol[n_dims:], params * adj_sol[n_dims:], axes=0)
+            * np.tensordot(params * adj_vec[n_dims:], params * adj_vec[n_dims:], axes=0)
         )
         tmp = np.tensordot(
-            params ** 2, adj_sol[:n_dims] * ad_sol[n_dims:], axes=((0), (0))
+            params ** 2, adj_vec[:n_dims] * adj_vec[n_dims:], axes=((0), (0))
         )
         tmp_vec2 = (
             -4.0
             * fct ** 2
             * tmp
-            * np.tensordot(params * adj_sol[n_dims:], params * adj_sol[:n_dims], axes=0)
+            * np.tensordot(params * adj_vec[n_dims:], params * adj_vec[:n_dims], axes=0)
         )
         vals10 = tmp_vec1 + tmp_vec2
 
         vals11 = (
             2.0
             * fct
-            * np.tensordot(params * adj_sol[n_dims:], params * adj_sol[:n_dims], axes=0)
+            * np.tensordot(params * adj_vec[n_dims:], params * adj_vec[:n_dims], axes=0)
         )
 
         vals = np.concatenate(
