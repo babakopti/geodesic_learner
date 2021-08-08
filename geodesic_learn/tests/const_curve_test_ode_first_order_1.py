@@ -36,7 +36,7 @@ gamma_vec = np.random.uniform(low=-0.01, high=0.01, size=(n_gamma_vec,))
 params = np.concatenate([gamma_vec, np.zeros(shape=(n_dims), dtype="d")])
 geodesic_learner.n_dims = n_dims
 geodesic_learner.n_params = n_gamma_vec + n_dims
-gamma1 = geodesic_learner._get_gamma(params)
+gamma1 = geodesic_learner._get_ode_params(params)
 bc_vec = np.ones(shape=(n_dims))
 
 ode_obj = OdeGeoConstOrd1(
@@ -63,7 +63,7 @@ geodesic_learner.n_params = None
 # Fit
 geodesic_learner.fit(X)
 
-gamma2 = geodesic_learner._get_gamma(geodesic_learner.params)
+gamma2 = geodesic_learner._get_ode_params(geodesic_learner.params)
 
 print("Gamma Diff:", np.linalg.norm(gamma1-gamma2)/np.linalg.norm(gamma1))
 

@@ -14,7 +14,12 @@ from scipy.integrate import trapz
 
 import const as c
 from ode import (
-    OdeGeoConstOrd1, OdeAdjConstOrd1, OdeGeoConstOrd2, OdeAdjConstOrd2
+    OdeGeoConstOrd1,
+    OdeAdjConstOrd1,
+    OdeGeoConstOrd2,
+    OdeAdjConstOrd2,
+    OdeGeoQuadratic,
+    OdeAdjQuadratic,
 )
 from utils import get_logger
 
@@ -178,12 +183,12 @@ class GeodesicLearner:
         else:
             bc_time = 0.0
 
-        gamma = self._get_gamma(self.params)
+        gamma = self._get_ode_params(self.params)
 
         if self.manifold_type == c.CONST_CURVATURE_ORD1:
-            assert len(bc_vec) == self.n_dims            
+            assert len(bc_vec) == self.n_dims
             ode_obj = OdeGeoConstOrd1(
-                n_dims=self.n_dims,                
+                n_dims=self.n_dims,
                 ode_params=gamma,
                 bc_vec=bc_vec,
                 bc_time=bc_time,
@@ -194,8 +199,21 @@ class GeodesicLearner:
                 tol=self.ode_geo_tol,
             )
         elif self.manifold_type == c.CONST_CURVATURE_ORD2:
-            assert len(bc_vec) == 2 * self.n_dims                        
+            assert len(bc_vec) == 2 * self.n_dims
             ode_obj = OdeGeoConstOrd2(
+                n_dims=self.n_dims,
+                ode_params=gamma,
+                bc_vec=bc_vec,
+                bc_time=bc_time,
+                time_inc=1.0,
+                n_steps=n_steps,
+                bk_flag=bk_flag,
+                intg_type=self.ode_geo_solver,
+                tol=self.ode_geo_tol,
+            )
+        elif self.manifold_type == c.QUADRATIC:
+            assert len(bc_vec) == 2 * self.n_dims
+            ode_obj = OdeGeoQuadratic(
                 n_dims=self.n_dims,
                 ode_params=gamma,
                 bc_vec=bc_vec,
@@ -208,7 +226,7 @@ class GeodesicLearner:
             )
         else:
             assert False, "Unknow manidold type"
-            
+
         s_flag = ode_obj.solve()
 
         if not s_flag:
@@ -239,24 +257,28 @@ class GeodesicLearner:
 
         # Calculate number of model parameters
         if self.manifold_type in [
-            c.CONST_CURVATURE_ORD1, c.CONST_CURVATURE_ORD2,
+            c.CONST_CURVATURE_ORD1,
+            c.CONST_CURVATURE_ORD2,
         ]:
 
             if self.diagonal_metric:
                 self.n_params = n_dims * (2 * n_dims - 1)
             else:
                 self.n_params = int(n_dims * n_dims * (n_dims + 1) / 2)
-
             if not self.self_relation:
                 self.n_params -= n_dims
+        elif self.manifold_type == c.QUADRATIC:
+            self.n_params = n_dims
+        else:
+            assert False, "Unknow manidold type"
 
         n_gamma_vec = self.n_params
-        
+
         if self.manifold_type == c.CONST_CURVATURE_ORD1:
             self.n_params += n_dims
         else:
             self.n_params += 2 * n_dims
-            
+
         # Initialize parameters and set BC vec
         self.params = np.zeros(shape=(self.n_params), dtype="d")
 
@@ -270,7 +292,7 @@ class GeodesicLearner:
             elif self.ode_bc_mode == c.START_BC:
                 self.params[m + n_gamma_vec] = X[0][m]
                 if self.manifold_type != c.CONST_CURVATURE_ORD1:
-                    self.params[m + n_gamma_vec + n_dims] = X[1][m] - X[0][m]                
+                    self.params[m + n_gamma_vec + n_dims] = X[1][m] - X[0][m]
             else:
                 assert False
 
@@ -292,13 +314,13 @@ class GeodesicLearner:
         }
 
         try:
-            #bounds = [(-1, 1) for i in range(self.n_params)]
+            # bounds = [(-1, 1) for i in range(self.n_params)]
             opt_obj = scipy.optimize.minimize(
                 fun=self._get_obj_func,
                 x0=self.params,
                 method=self.opt_method,
                 jac=self._get_grad,
-                #bounds=bounds,
+                # bounds=bounds,
                 options=options,
             )
             s_flag = opt_obj.success
@@ -338,12 +360,10 @@ class GeodesicLearner:
             n_gamma_vec = self.n_params - self.n_dims
         else:
             n_gamma_vec = self.n_params - 2 * self.n_dims
-            
+
         tmp1 = np.linalg.norm(params[:n_gamma_vec], 1)
         tmp2 = np.linalg.norm(params[:n_gamma_vec])
-        val += self.alpha * (
-            self.l1_ratio * tmp1 + (1.0 - self.l1_ratio) * tmp2 ** 2
-        )
+        val += self.alpha * (self.l1_ratio * tmp1 + (1.0 - self.l1_ratio) * tmp2 ** 2)
 
         del sol
         del tmp_vec
@@ -354,10 +374,10 @@ class GeodesicLearner:
 
     def _get_grad(self, params):
 
-        if self.manifold_type in [
-                c.CONST_CURVATURE_ORD1, c.CONST_CURVATURE_ORD2
-        ]:
+        if self.manifold_type in [c.CONST_CURVATURE_ORD1, c.CONST_CURVATURE_ORD2]:
             return self._get_grad_const(params)
+        elif self.manifold_type == c.QUADRATIC:
+            return self._get_grad_quadratic(params)
         else:
             assert False
 
@@ -373,19 +393,14 @@ class GeodesicLearner:
 
         sol = self._get_geo_sol(params)
         adj_sol = self._get_adj_sol(params, sol)
-        gamma = self._get_gamma(params)
-        
+        gamma = self._get_ode_params(params)
+
         gamma_id = 0
         for r in range(n_dims):
             for p in range(n_dims):
                 for q in range(p, n_dims):
 
-                    if (
-                        self.diagonal_metric
-                        and r != p
-                        and r != q
-                        and p != q
-                    ):
+                    if self.diagonal_metric and r != p and r != q and p != q:
                         continue
                     if (not self.self_relation) and r == p and p == q:
                         continue
@@ -393,13 +408,13 @@ class GeodesicLearner:
                     if self.manifold_type == c.CONST_CURVATURE_ORD1:
                         tmp_vec = xi(p, q) * np.multiply(sol[p][:], sol[q][:])
                     elif self.manifold_type == c.CONST_CURVATURE_ORD2:
-                        tmp_vec = xi(p, q) * np.multiply(sol[p + n_dims][:], sol[q + n_dims][:])
-                        
+                        tmp_vec = xi(p, q) * np.multiply(
+                            sol[p + n_dims][:], sol[q + n_dims][:]
+                        )
+
                     tmp_vec = np.multiply(tmp_vec, adj_sol[r][:])
 
-                    grad[gamma_id] = trapz(
-                        tmp_vec, dx=time_inc
-                    ) + alpha * (
+                    grad[gamma_id] = trapz(tmp_vec, dx=time_inc) + alpha * (
                         l1_ratio * np.sign(params[gamma_id])
                         + (1.0 - l1_ratio) * 2.0 * params[gamma_id]
                     )
@@ -414,7 +429,7 @@ class GeodesicLearner:
             n_gamma_vec = self.n_params - n_dims
         elif self.manifold_type == c.CONST_CURVATURE_ORD2:
             n_gamma_vec = self.n_params - 2 * n_dims
-            
+
         gamma_vec = params[:n_gamma_vec]
 
         tmp1 = np.linalg.norm(gamma_vec)
@@ -422,9 +437,7 @@ class GeodesicLearner:
 
         fct = 1.0
         if tmp2 > 0:
-            fct = min(
-                1.0, math.sqrt(abs(tmp1 ** 2 - n_gamma_vec) / tmp2 ** 2)
-            )
+            fct = min(1.0, math.sqrt(abs(tmp1 ** 2 - n_gamma_vec) / tmp2 ** 2))
 
         if self.ode_bc_mode == c.END_BC:
             bc_ind = -1
@@ -439,22 +452,89 @@ class GeodesicLearner:
         elif self.manifold_type == c.CONST_CURVATURE_ORD2:
             tmp_vec1 = np.empty(shape=(n_dims), dtype="d")
             tmp_vec2 = np.empty(shape=(n_dims), dtype="d")
-            
+
             for i in range(n_dims):
                 tmp_vec1[i] = adj_sol[i][bc_ind]
                 tmp_vec2[i] = sol[i + n_dims][bc_ind]
-                
+
             tmp_vec3 = np.tensordot(
                 gamma, np.tensordot(tmp_vec1, tmp_vec2, axes=0), ((0, 1), (0, 1))
             )
             for i in range(n_dims):
-                grad[i + n_gamma_vec] = bc_fct * (-adj_sol[i + n_dims][bc_ind] + 2.0 * tmp_vec3[i])
+                grad[i + n_gamma_vec] = bc_fct * (
+                    -adj_sol[i + n_dims][bc_ind] + 2.0 * tmp_vec3[i]
+                )
                 grad[i + n_gamma_vec + n_dims] = bc_fct * adj_sol[i][bc_ind]
 
         grad = fct * grad
 
-        del sol        
+        del sol
         del adj_sol
+
+        gc.collect()
+
+        return grad
+
+    def _get_grad_quadratic(self, params):
+
+        n_dims = self.n_dims
+        n_times = self.n_times
+        alpha = self.alpha
+        l1_ratio = self.l1_ratio
+        time_inc = 1.0
+        grad = np.zeros(shape=(self.n_params), dtype="d")
+
+        sol = self._get_geo_sol(params)
+        adj_sol = self._get_adj_sol(params, sol)
+        ode_params = self._get_ode_params(params)
+
+        fct = 1.0
+        for m in range(n_dims):
+            fct += (params[m] * y[m]) ** 2
+
+        fct = 1.0 / fct1
+
+        tmp_vec1 = np.zeros(shape=(n_times), dtype="d")
+        for m in range(n_dims):
+            tmp_vec1 += params[m] * sol[m][:] * adj_sol[m][:]
+
+        tmp_vec2 = np.zeros(shape=(n_times), dtype="d")
+        for a in range(n_dims):
+            tmp_vec2 += params[a] * sol[a + n_dims][:] ** 2
+
+        for l in range(n_dims):
+
+            tmp_vec = (
+                fct * tmp_vec1 * sol[l + n_dims][:] ** 2
+                + fct * tmp_vec2 * sol[l][:] * adj_sol[l][:]
+                - 2.0 * fct ** 2 * tmp_vec1 * tmp_vec2 * params[l] * sol[l][:] ** 2
+            )
+
+            grad[l] = trapz(tmp_vec, dx=time_inc) + alpha * (
+                l1_ratio * np.sign(params[l]) + (1.0 - l1_ratio) * 2.0 * params[l]
+            )
+
+        del tmp_vec, tmp_vec2
+
+        gc.collect()
+
+        if self.ode_bc_mode == c.END_BC:
+            bc_ind = -1
+            bc_fct = 1.0
+        else:
+            bc_ind = 0
+            bc_fct = -1.0
+
+        for r in range(n_dims):
+            grad[r + n_dims] = bc_fct * (
+                -adj_sol[r + n_dims][bc_ind]
+                + 2.0 * fct * tmp_vec1[bc_ind] * params[r] * sol[r + n_dims][bc_ind]
+            )
+            grad[r + 2 * n_dims] = bc_fct * adj_sol[r][bc_ind]
+
+        del sol
+        del adj_sol
+        del tmp_vec1
 
         gc.collect()
 
@@ -471,20 +551,20 @@ class GeodesicLearner:
             bc_time = 0.0
             bk_flag = False
 
-        if self.manifold_type == c.CONST_CURVATURE_ORD1: 
+        if self.manifold_type == c.CONST_CURVATURE_ORD1:
             n_gamma_vec = self.n_params - self.n_dims
         else:
             n_gamma_vec = self.n_params - 2 * self.n_dims
-            
+
         gamma_vec = params[:n_gamma_vec]
         bc_vec = params[n_gamma_vec:]
 
-        gamma = self._get_gamma(params)
+        ode_params = self._get_ode_params(params)
 
         if self.manifold_type == c.CONST_CURVATURE_ORD1:
             ode_obj = OdeGeoConstOrd1(
                 n_dims=self.n_dims,
-                ode_params=gamma,
+                ode_params=ode_params,
                 bc_vec=bc_vec,
                 bc_time=bc_time,
                 time_inc=1.0,
@@ -496,7 +576,19 @@ class GeodesicLearner:
         elif self.manifold_type == c.CONST_CURVATURE_ORD2:
             ode_obj = OdeGeoConstOrd2(
                 n_dims=self.n_dims,
-                ode_params=gamma,
+                ode_params=ode_params,
+                bc_vec=bc_vec,
+                bc_time=bc_time,
+                time_inc=1.0,
+                n_steps=n_steps,
+                bk_flag=bk_flag,
+                intg_type=self.ode_geo_solver,
+                tol=self.ode_geo_tol,
+            )
+        elif self.manifold_type == c.QUADRATIC:
+            ode_obj = OdeGeoQuadratic(
+                n_dims=self.n_dims,
+                ode_params=ode_params,
                 bc_vec=bc_vec,
                 bc_time=bc_time,
                 time_inc=1.0,
@@ -507,7 +599,7 @@ class GeodesicLearner:
             )
         else:
             assert False, "Unknow manidold type"
-            
+
         s_flag = ode_obj.solve()
 
         if not s_flag:
@@ -520,7 +612,7 @@ class GeodesicLearner:
 
         n_steps = self.n_times - 1
 
-        gamma = self._get_gamma(params)
+        ode_params = self._get_ode_params(params)
 
         if self.ode_bc_mode == c.END_BC:
             bc_time = 0.0
@@ -533,7 +625,7 @@ class GeodesicLearner:
             bc_vec = np.zeros(shape=(self.n_dims), dtype="d")
             adj_ode_obj = OdeAdjConstOrd1(
                 n_dims=self.n_dims,
-                ode_params=gamma,
+                ode_params=ode_params,
                 bc_vec=bc_vec,
                 bc_time=bc_time,
                 time_inc=1.0,
@@ -548,7 +640,22 @@ class GeodesicLearner:
             bc_vec = np.zeros(shape=(2 * self.n_dims), dtype="d")
             adj_ode_obj = OdeAdjConstOrd2(
                 n_dims=self.n_dims,
-                ode_params=gamma,
+                ode_params=ode_params,
+                bc_vec=bc_vec,
+                bc_time=bc_time,
+                time_inc=1.0,
+                n_steps=n_steps,
+                bk_flag=bk_flag,
+                intg_type=self.ode_adj_solver,
+                tol=self.ode_adj_tol,
+                act_sol=self.act_sol,
+                adj_sol=geo_sol,
+            )
+        elif self.manifold_type == c.QUADRATIC:
+            bc_vec = np.zeros(shape=(2 * self.n_dims), dtype="d")
+            adj_ode_obj = OdeAdjQuadratic(
+                n_dims=self.n_dims,
+                ode_params=ode_params,
                 bc_vec=bc_vec,
                 bc_time=bc_time,
                 time_inc=1.0,
@@ -561,7 +668,7 @@ class GeodesicLearner:
             )
         else:
             assert False, "Unknow manifold type"
-            
+
         s_flag = adj_ode_obj.solve()
 
         if not s_flag:
@@ -570,12 +677,12 @@ class GeodesicLearner:
 
         return adj_ode_obj.get_sol()
 
-    def _get_gamma(self, params):
+    def _get_ode_params(self, params):
 
-        if self.manifold_type in [
-            c.CONST_CURVATURE_ORD1, c.CONST_CURVATURE_ORD2
-        ]:
+        if self.manifold_type in [c.CONST_CURVATURE_ORD1, c.CONST_CURVATURE_ORD2]:
             return self._get_gamma_const(params)
+        elif self.manifold_type == c.QUADRACTIC:
+            return params[: self.n_dims]
         else:
             assert False
 
@@ -583,12 +690,12 @@ class GeodesicLearner:
 
         n_dims = self.n_dims
         n_times = self.n_times
-        
-        if self.manifold_type == c.CONST_CURVATURE_ORD1: 
+
+        if self.manifold_type == c.CONST_CURVATURE_ORD1:
             n_gamma_vec = self.n_params - n_dims
         elif self.manifold_type == c.CONST_CURVATURE_ORD2:
             n_gamma_vec = self.n_params - 2 * n_dims
-            
+
         gamma_vec = params[:n_gamma_vec]
         gamma = np.zeros(shape=(n_dims, n_dims, n_dims), dtype="d")
 
@@ -597,12 +704,7 @@ class GeodesicLearner:
             for a in range(n_dims):
                 for b in range(a, n_dims):
 
-                    if (
-                        self.diagonal_metric
-                        and m != a
-                        and m != b
-                        and a != b
-                    ):
+                    if self.diagonal_metric and m != a and m != b and a != b:
                         continue
                     elif (not self.self_relation) and m == a and a == b:
                         continue
@@ -612,4 +714,3 @@ class GeodesicLearner:
                         gamma_id += 1
 
         return gamma
-
