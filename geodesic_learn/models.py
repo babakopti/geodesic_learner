@@ -36,6 +36,7 @@ class GeodesicLearner:
         ode_geo_tol: float = 1.0e-2,
         ode_adj_tol: float = 1.0e-2,
         ode_bc_mode: str = c.END_BC,
+        learning_rate: float = 1.0,
         alpha: float = 0.0,
         l1_ratio: float = 0.0,
         diagonal_metric: bool = True,
@@ -81,6 +82,9 @@ class GeodesicLearner:
         |          Mode of boundary condition during training.
         |          Allowed values are "end_bc" and "start_bc". Default is "end_bc".
         |
+        |      learning_rate: float
+        |          The learning rate for solving the optimization problem. Default is 1.0.
+        |
         |      alpha: float
         |          Regularization strength. Default is 0.
         |
@@ -115,6 +119,7 @@ class GeodesicLearner:
         self.ode_geo_tol = ode_geo_tol
         self.ode_adj_tol = ode_adj_tol
         self.ode_bc_mode = ode_bc_mode
+        self.learning_rate = learning_rate
         self.alpha = alpha
         self.l1_ratio = l1_ratio
         self.diagonal_metric = diagonal_metric
@@ -310,7 +315,7 @@ class GeodesicLearner:
             "ftol": self.opt_tol,
             "maxiter": self.max_opt_iters,
             "disp": True,
-            "eps": 0.01,
+            "eps": 1.0e-5,
         }
 
 #        try:
@@ -432,13 +437,6 @@ class GeodesicLearner:
 
         gamma_vec = params[:n_gamma_vec]
 
-        tmp1 = np.linalg.norm(gamma_vec)
-        tmp2 = np.linalg.norm(grad)
-
-        fct = 1.0
-        if tmp2 > 0:
-            fct = min(1.0, math.sqrt(abs(tmp1 ** 2 - n_gamma_vec) / tmp2 ** 2))
-
         if self.ode_bc_mode == c.END_BC:
             bc_ind = -1
             bc_fct = 1.0
@@ -466,7 +464,16 @@ class GeodesicLearner:
                 )
                 grad[i + n_gamma_vec + n_dims] = bc_fct * adj_sol[i][bc_ind]
 
-        grad = fct * grad
+        learning_rate = self.learning_rate
+        if learning_rate is None:
+            tmp1 = np.linalg.norm(gamma_vec)
+            tmp2 = np.linalg.norm(grad)
+
+            learning_rate = 1.0
+            if tmp2 > 0:
+                learning_rate = min(1.0, math.sqrt(abs(tmp1 ** 2 - n_gamma_vec) / tmp2 ** 2))
+
+        grad = learning_rate * grad
 
         del sol
         del adj_sol

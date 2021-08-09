@@ -19,12 +19,12 @@ n_times = 50
 n_steps = n_times - 1
 
 u0 = 8.0
-v0 = 0.0
-xi0 = 0.2
-eta0 = 0.0
+v0 = -1.85
+xi0 = 0.22
+eta0 = -0.13
 
-alpha = -1.0
-beta = 1.0
+alpha = 2.60161489 
+beta = -2.60338054
 
 params1 = [alpha, beta]
 
@@ -75,14 +75,14 @@ for m in range(n_dims):
 geodesic_learner = GeodesicLearner(
     manifold_type="quadratic_surface",
     opt_method="SLSQP",
-    max_opt_iters=300,
-    opt_tol=1.0e-8,
+    max_opt_iters=500,
+    opt_tol=1.0e-4,
     ode_geo_solver="LSODA",
     ode_adj_solver="RK45",
-    ode_geo_tol=1.0e-6,
-    ode_adj_tol=1.0e-6,
+    ode_geo_tol=1.0e-9,
+    ode_adj_tol=1.0e-9,
     ode_bc_mode="end_bc",
-    alpha=1.0e-8,
+    alpha=0.0,
     l1_ratio=0.0,
     diagonal_metric=True,
     self_relation=False,
@@ -94,3 +94,14 @@ params2 = geodesic_learner.params
 
 print("params1:", params1)
 print("params2:", params2)
+
+X_prd = geodesic_learner.predict_train()
+
+act_sol = X.transpose()
+prd_sol = X_prd.transpose()
+
+for m in range(n_dims):
+    plt.plot(act_sol[m], "b.")
+    plt.plot(prd_sol[m], "r")
+    plt.legend(["Actual", "Predicted"])
+    plt.show()
