@@ -61,8 +61,7 @@ class OdeBase:
         n_times = self.n_times
         bc_time = self.bc_time
         time_inc = self.time_inc
-
-        bk_flag = bool(bc_time > 0)
+        bk_flag = self.bk_flag
 
         if bk_flag:
             end_time = bc_time - n_steps * time_inc
