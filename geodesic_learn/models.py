@@ -721,3 +721,12 @@ class GeodesicLearner:
                         gamma_id += 1
 
         return gamma
+
+    def _get_curvature_const(self, params):
+
+        gamma = self._get_gamma_const(params)
+
+        curve_const = np.tensordot(gamma, gamma, axes=((1), (0))) 
+        curve_const = curve_const - np.swapaxes(curve_const, 1, 3)
+
+        return curve_const
