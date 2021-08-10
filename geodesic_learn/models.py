@@ -15,6 +15,7 @@ from scipy.integrate import trapz
 import const as c
 from ode import (
     OdeGeoConstOrd1,
+    OdeGeoConstIEOrd1,    
     OdeAdjConstOrd1,
     OdeGeoConstOrd2,
     OdeAdjConstOrd2,
@@ -35,6 +36,8 @@ class GeodesicLearner:
         ode_adj_solver: str = "RK45",
         ode_geo_tol: float = 1.0e-2,
         ode_adj_tol: float = 1.0e-2,
+        ode_geo_max_iters: int = 20,
+        ode_adj_max_iters: int = 20,
         ode_bc_mode: str = c.END_BC,
         learning_rate: float = 1.0,
         alpha: float = 0.0,
@@ -78,6 +81,14 @@ class GeodesicLearner:
         |          ODE solver tolerance for adjoint equations.
         |          Default is 1.0e-2.
         |
+        |      ode_geo_max_iters: int
+        |          ODE solver max iterations for geodesic equations.
+        |          Default is 20.
+        |
+        |      ode_adj_max_iters: int
+        |          ODE solver max iterations for adjoint equations.
+        |          Default is 20.
+        |
         |      ode_bc_mode: str
         |          Mode of boundary condition during training.
         |          Allowed values are "end_bc" and "start_bc". Default is "end_bc".
@@ -118,6 +129,8 @@ class GeodesicLearner:
         self.ode_adj_solver = ode_adj_solver
         self.ode_geo_tol = ode_geo_tol
         self.ode_adj_tol = ode_adj_tol
+        self.ode_geo_max_iters = ode_geo_max_iters
+        self.ode_adj_max_iters = ode_adj_max_iters  
         self.ode_bc_mode = ode_bc_mode
         self.learning_rate = learning_rate
         self.alpha = alpha
@@ -192,17 +205,30 @@ class GeodesicLearner:
 
         if self.manifold_type == c.CONST_CURVATURE_ORD1:
             assert len(bc_vec) == self.n_dims
-            ode_obj = OdeGeoConstOrd1(
-                n_dims=self.n_dims,
-                ode_params=gamma,
-                bc_vec=bc_vec,
-                bc_time=bc_time,
-                time_inc=1.0,
-                n_steps=n_steps,
-                bk_flag=bk_flag,
-                intg_type=self.ode_geo_solver,
-                tol=self.ode_geo_tol,
-            )
+            if self.ode_geo_solver == "implicit_euler":
+                ode_obj = OdeGeoConstIEOrd1(
+                    n_dims=self.n_dims,
+                    ode_params=gamma,
+                    bc_vec=bc_vec,
+                    time_inc=1.0,
+                    n_steps=n_steps,
+                    bk_flag=bk_flag,
+                    tol=self.ode_geo_tol,
+                    n_max_iters=self.ode_geo_max_iters,                
+                )
+            else:
+                ode_obj = OdeGeoConstOrd1(
+                    n_dims=self.n_dims,
+                    ode_params=gamma,
+                    bc_vec=bc_vec,
+                    bc_time=bc_time,
+                    time_inc=1.0,
+                    n_steps=n_steps,
+                    bk_flag=bk_flag,
+                    intg_type=self.ode_geo_solver,
+                    tol=self.ode_geo_tol,
+                    n_max_iters=self.ode_geo_max_iters,                
+                )                
         elif self.manifold_type == c.CONST_CURVATURE_ORD2:
             assert len(bc_vec) == 2 * self.n_dims
             ode_obj = OdeGeoConstOrd2(
@@ -215,6 +241,7 @@ class GeodesicLearner:
                 bk_flag=bk_flag,
                 intg_type=self.ode_geo_solver,
                 tol=self.ode_geo_tol,
+                n_max_iters=self.ode_geo_max_iters,                
             )
         elif self.manifold_type == c.QUADRATIC:
             assert len(bc_vec) == 2 * self.n_dims
@@ -228,6 +255,7 @@ class GeodesicLearner:
                 bk_flag=bk_flag,
                 intg_type=self.ode_geo_solver,
                 tol=self.ode_geo_tol,
+                n_max_iters=self.ode_geo_max_iters,                
             )
         else:
             assert False, "Unknow manidold type"
@@ -569,17 +597,30 @@ class GeodesicLearner:
         ode_params = self._get_ode_params(params)
 
         if self.manifold_type == c.CONST_CURVATURE_ORD1:
-            ode_obj = OdeGeoConstOrd1(
-                n_dims=self.n_dims,
-                ode_params=ode_params,
-                bc_vec=bc_vec,
-                bc_time=bc_time,
-                time_inc=1.0,
-                n_steps=n_steps,
-                bk_flag=bk_flag,
-                intg_type=self.ode_geo_solver,
-                tol=self.ode_geo_tol,
-            )
+            if self.ode_geo_solver == "implicit_euler":            
+                ode_obj = OdeGeoConstIEOrd1(
+                    n_dims=self.n_dims,
+                    ode_params=ode_params,
+                    bc_vec=bc_vec,
+                    time_inc=1.0,
+                    n_steps=n_steps,
+                    bk_flag=bk_flag,
+                    tol=self.ode_geo_tol,
+                    n_max_iters=self.ode_geo_max_iters,                
+                )
+            else:
+                ode_obj = OdeGeoConstOrd1(
+                    n_dims=self.n_dims,
+                    ode_params=ode_params,
+                    bc_vec=bc_vec,
+                    bc_time=bc_time,
+                    time_inc=1.0,
+                    n_steps=n_steps,
+                    bk_flag=bk_flag,
+                    intg_type=self.ode_geo_solver,
+                    tol=self.ode_geo_tol,
+                    n_max_iters=self.ode_geo_max_iters,                
+                )
         elif self.manifold_type == c.CONST_CURVATURE_ORD2:
             ode_obj = OdeGeoConstOrd2(
                 n_dims=self.n_dims,
@@ -591,6 +632,7 @@ class GeodesicLearner:
                 bk_flag=bk_flag,
                 intg_type=self.ode_geo_solver,
                 tol=self.ode_geo_tol,
+                n_max_iters=self.ode_geo_max_iters,                
             )
         elif self.manifold_type == c.QUADRATIC:
             ode_obj = OdeGeoQuadratic(
@@ -602,7 +644,8 @@ class GeodesicLearner:
                 n_steps=n_steps,
                 bk_flag=bk_flag,
                 intg_type=self.ode_geo_solver,
-                tol=self.ode_geo_tol,
+                tol=self.ode_geo_tol, 
+                n_max_iters=self.ode_geo_max_iters,               
             )
         else:
             assert False, "Unknow manidold type"
@@ -642,6 +685,7 @@ class GeodesicLearner:
                 tol=self.ode_adj_tol,
                 act_sol=self.act_sol,
                 adj_sol=geo_sol,
+                n_max_iters=self.ode_adj_max_iters,                
             )
         elif self.manifold_type == c.CONST_CURVATURE_ORD2:
             bc_vec = np.zeros(shape=(2 * self.n_dims), dtype="d")
@@ -657,6 +701,7 @@ class GeodesicLearner:
                 tol=self.ode_adj_tol,
                 act_sol=self.act_sol,
                 adj_sol=geo_sol,
+                n_max_iters=self.ode_adj_max_iters,                
             )
         elif self.manifold_type == c.QUADRATIC:
             bc_vec = np.zeros(shape=(2 * self.n_dims), dtype="d")
@@ -672,6 +717,7 @@ class GeodesicLearner:
                 tol=self.ode_adj_tol,
                 act_sol=self.act_sol,
                 adj_sol=geo_sol,
+                n_max_iters=self.ode_adj_max_iters,                
             )
         else:
             assert False, "Unknow manifold type"

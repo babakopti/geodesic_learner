@@ -8,7 +8,7 @@ from sklearn.preprocessing import MinMaxScaler
 sys.path.append("..")
 
 from models import GeodesicLearner
-from ode import OdeGeoConstOrd1
+from ode import OdeGeoConstIEOrd1
 
 # Instantiate
 geodesic_learner = GeodesicLearner(
@@ -16,12 +16,12 @@ geodesic_learner = GeodesicLearner(
     opt_method="SLSQP",
     max_opt_iters=300,
     opt_tol=1.0e-8,
-    ode_geo_solver="LSODA",
+    ode_geo_solver="implicit_euler",
     ode_adj_solver="RK45",
     ode_geo_tol=1.0e-6,
     ode_adj_tol=1.0e-6,
     ode_bc_mode="end_bc",
-    learning_rate=0.001,
+    learning_rate=0.01,
     alpha=0.0,
     l1_ratio=0.0,
     diagonal_metric=True,
@@ -40,16 +40,15 @@ geodesic_learner.n_params = n_gamma_vec + n_dims
 gamma1 = geodesic_learner._get_ode_params(params)
 bc_vec = np.ones(shape=(n_dims))
 
-ode_obj = OdeGeoConstOrd1(
+ode_obj = OdeGeoConstIEOrd1(
     n_dims=n_dims,
     ode_params=gamma1,
     bc_vec=bc_vec,
-    bc_time=n_steps,
     time_inc=1.0,
     n_steps=n_steps,
     bk_flag=True,
-    intg_type="LSODA",
     tol=1.0e-6,
+    n_max_iters=20,
 )
 
 s_flag = ode_obj.solve()
