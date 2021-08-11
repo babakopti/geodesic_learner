@@ -101,3 +101,86 @@ class OdeBase:
 
     def get_sol(self):
         return self.sol
+
+
+# OdeBaseIE: Base ODE solver class for implicit Euler
+class OdeBaseIE:
+    def __init__(
+        self,
+        n_dims,
+        ode_params,
+        bc_vec,
+        time_inc,
+        n_steps,
+        bk_flag,
+        tol=1.0e-4,
+        n_max_iters=20,
+        act_sol=None,
+        adj_sol=None,            
+    ):
+
+        n_times = n_steps + 1
+
+        self.ode_params = ode_params
+        self.bc_vec = bc_vec
+        self.n_dims = n_dims
+        self.time_inc = time_inc
+        self.n_steps = n_steps
+        self.bk_flag = bk_flag
+        self.tol = tol
+        self.n_max_iters = n_max_iters
+        self.act_sol = act_sol
+        self.adj_sol = adj_sol        
+        self.n_times = n_times
+
+        assert bc_vec.shape[0] in [n_dims, 2 *n_dims], "Incorrect bc_vec size!"
+
+        if act_sol is not None:
+            assert act_sol.shape[0] == n_dims, "Incorrect act_sol size!"            
+            assert act_sol.shape[1] == n_times, "Incorrect act_sol size!"
+
+        if adj_sol is not None:
+            assert adj_sol.shape[0] in [n_dims, 2 *n_dims], "Incorrect adj_sol size!"                        
+            assert adj_sol.shape[1] == n_times, "Incorrect adj_sol size!"
+            
+        self.sol = np.zeros(shape=(len(bc_vec), n_times), dtype="d")
+
+    def solve(self):
+
+        n_steps = self.n_steps
+        n_times = self.n_times
+        bk_flag = self.bk_flag 
+        bc_vec = self.bc_vec
+        
+        curr_vec = bc_vec.copy()
+
+        if bk_flag:
+            bc_ind = -1
+            curr_ts_id = n_steps
+        else:
+            bc_ind = 0
+            curr_ts_id = 0
+            
+        for m in range(len(bc_vec)):
+            self.sol[m][bc_ind] = bc_vec[m]
+    
+        for step_id in range(n_steps):
+
+            if bk_flag:
+                curr_ts_id -= 1
+            else:
+                curr_ts_id += 1
+            
+            curr_vec = self._update(curr_vec, curr_ts_id)
+            
+            for m in range(len(curr_vec)):
+                self.sol[m][curr_ts_id] = curr_vec[m]
+
+        return True
+    
+    def get_sol(self):
+        return self.sol
+    
+    def _update(self, prev_vec, curr_ts_id):
+        pass
+    

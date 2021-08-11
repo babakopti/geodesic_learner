@@ -15,7 +15,8 @@ from scipy.integrate import trapz
 import const as c
 from ode import (
     OdeGeoConstOrd1,
-    OdeGeoConstIEOrd1,    
+    OdeGeoConstIEOrd1,
+    OdeAdjConstIEOrd1,        
     OdeAdjConstOrd1,
     OdeGeoConstOrd2,
     OdeAdjConstOrd2,
@@ -346,25 +347,23 @@ class GeodesicLearner:
             "eps": 1.0e-5,
         }
 
-#        try:
-            # bounds = [(-1, 1) for i in range(self.n_params)]
-        opt_obj = scipy.optimize.minimize(
+        try:
+            opt_obj = scipy.optimize.minimize(
                 fun=self._get_obj_func,
                 x0=self.params,
                 method=self.opt_method,
                 jac=self._get_grad,
-                # bounds=bounds,
                 options=options,
-        )
-        s_flag = opt_obj.success
+            )
+            s_flag = opt_obj.success
 
-        self.params = opt_obj.x
+            self.params = opt_obj.x
 
-        self.logger.info("Success: %s", str(s_flag))
+            self.logger.info("Success: %s", str(s_flag))
 
-        #except Exception as exc:
-        #    self.logger.error(exc)
-        #    s_flag = False
+        except Exception as exc:
+            self.logger.error(exc)
+            s_flag = False
 
         self.logger.info(
             "Setting parameters took %0.2f seconds.",
@@ -673,20 +672,34 @@ class GeodesicLearner:
 
         if self.manifold_type == c.CONST_CURVATURE_ORD1:
             bc_vec = np.zeros(shape=(self.n_dims), dtype="d")
-            adj_ode_obj = OdeAdjConstOrd1(
-                n_dims=self.n_dims,
-                ode_params=ode_params,
-                bc_vec=bc_vec,
-                bc_time=bc_time,
-                time_inc=1.0,
-                n_steps=n_steps,
-                bk_flag=bk_flag,
-                intg_type=self.ode_adj_solver,
-                tol=self.ode_adj_tol,
-                act_sol=self.act_sol,
-                adj_sol=geo_sol,
-                n_max_iters=self.ode_adj_max_iters,                
-            )
+            if self.ode_geo_solver == "implicit_euler":
+                adj_ode_obj = OdeAdjConstIEOrd1(
+                    n_dims=self.n_dims,
+                    ode_params=ode_params,
+                    bc_vec=bc_vec,
+                    time_inc=1.0,
+                    n_steps=n_steps,
+                    bk_flag=bk_flag,
+                    tol=self.ode_adj_tol,
+                    act_sol=self.act_sol,
+                    adj_sol=geo_sol,
+                    n_max_iters=self.ode_adj_max_iters,                
+                )
+            else:
+                adj_ode_obj = OdeAdjConstOrd1(
+                    n_dims=self.n_dims,
+                    ode_params=ode_params,
+                    bc_vec=bc_vec,
+                    bc_time=bc_time,
+                    time_inc=1.0,
+                    n_steps=n_steps,
+                    bk_flag=bk_flag,
+                    intg_type=self.ode_adj_solver,
+                    tol=self.ode_adj_tol,
+                    act_sol=self.act_sol,
+                    adj_sol=geo_sol,
+                    n_max_iters=self.ode_adj_max_iters,                
+                )                
         elif self.manifold_type == c.CONST_CURVATURE_ORD2:
             bc_vec = np.zeros(shape=(2 * self.n_dims), dtype="d")
             adj_ode_obj = OdeAdjConstOrd2(

@@ -5,74 +5,11 @@ import time
 import numpy as np
 import scipy as sp
 from scipy.integrate import trapz
-from ode_base import OdeBase
+from ode_base import OdeBase, OdeBaseIE
 
 # OdeGeoConstIEOrd1: Geodesic ODE IE solver; 1st order; const. curv.
-class OdeGeoConstIEOrd1:
-    def __init__(
-        self,
-        n_dims,
-        ode_params,
-        bc_vec,
-        time_inc,
-        n_steps,
-        bk_flag,
-        tol=1.0e-4,
-        n_max_iters=20,
-    ):
-
-        n_times = n_steps + 1
-
-        self.ode_params = ode_params
-        self.bc_vec = bc_vec
-        self.n_dims = n_dims
-        self.time_inc = time_inc
-        self.n_steps = n_steps
-        self.bk_flag = bk_flag
-        self.tol = tol
-        self.n_max_iters = n_max_iters
-        self.n_times = n_times
-
-        assert bc_vec.shape[0] == n_dims, "Incorrect bc_vec size!"
-        
-        self.sol = np.zeros(shape=(n_dims, n_times), dtype="d")
-
-    def solve(self):
-
-        n_dims = self.n_dims
-        n_steps = self.n_steps
-        n_times = self.n_times
-        bk_flag = self.bk_flag 
-        bc_vec = self.bc_vec
-        
-        curr_vec = bc_vec.copy()
-
-        if bk_flag:
-            bc_ind = -1
-        else:
-            bc_ind = 0
-            
-        for m in range(n_dims):
-            self.sol[m][bc_ind] = bc_vec[m]
-    
-        for step_id in range(n_steps):
-
-            curr_vec = self._update(curr_vec)
-
-            if bk_flag:
-                ts_id = n_times - 2 - step_id
-            else:
-                ts_id = step_id + 1
-                
-            for m in range(n_dims):
-                self.sol[m][ts_id] = curr_vec[m]
-
-        return True
-    
-    def get_sol(self):
-        return self.sol
-                
-    def _update(self, prev_vec):
+class OdeGeoConstIEOrd1(OdeBaseIE):
+    def _update(self, prev_vec, curr_ts_id):
 
         n_dims = self.n_dims
         time_inc = self.time_inc
@@ -105,7 +42,51 @@ class OdeGeoConstIEOrd1:
                 break
 
         return curr_vec
-        
+
+# OdeAdjConstIEOrd1: Adjoint ODE IE solver; 1st order; const. curv.
+class OdeAdjConstIEOrd1(OdeBaseIE):
+    def _update(self, prev_vec, curr_ts_id):
+
+        n_dims = self.n_dims
+        time_inc = self.time_inc
+        bk_flag = self.bk_flag                
+        tol = self.tol
+        n_max_iters = self.n_max_iters        
+        gamma = self.ode_params
+        adj_sol = self.adj_sol
+        act_sol = self.act_sol
+
+        if bk_flag:
+            fct = -1.0
+        else:
+            fct = 1.0
+
+        curr_vec = prev_vec.copy()
+        adj_vec = np.empty(shape=(n_dims), dtype="d")
+        act_vec = np.empty(shape=(n_dims), dtype="d")        
+
+        for a in range(n_dims):
+            adj_vec[a] = adj_sol[a][curr_ts_id]
+            act_vec[a] = act_sol[a][curr_ts_id]
+            
+        for itr in range(n_max_iters):
+                
+            lhs = fct * np.eye(n_dims) - 2.0 * time_inc * np.tensordot(
+                gamma, adj_vec, axes=((1), (0))
+            )
+            rhs = -fct * curr_vec + fct * prev_vec + 2.0 * time_inc * np.tensordot(
+                gamma,
+                np.tensordot(curr_vec, adj_vec, axes=0),
+                axes=((0, 1), (0, 1))
+            ) + (adj_vec - act_vec)
+            delta = np.linalg.solve(lhs, rhs)
+            curr_vec += delta
+
+            if np.linalg.norm(delta) < tol:
+                break
+
+        return curr_vec
+    
 # OdeGeoConstOrd1: Geodesic ODE solver; 1st order; const. curv.
 class OdeGeoConstOrd1(OdeBase):
     def fun(self, t, y):
