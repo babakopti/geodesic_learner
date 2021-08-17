@@ -313,25 +313,34 @@ class GeodesicLearner:
         else:
             self.n_params += 2 * n_dims
 
-        # Initialize parameters and set BC vec
+        # Initialize parameters
         self.params = np.zeros(shape=(self.n_params), dtype="d")
 
+        # Initialize BC vec
+        if self.manifold_type == c.CONST_CURVATURE_ORD1:
+            self.init_bc_vec = np.zeros(shape=(self.n_dims), dtype="d")
+        else:
+            self.init_bc_vec = np.zeros(shape=(2 * self.n_dims), dtype="d")
+            
         for m in range(self.n_dims):
             if self.ode_bc_mode == c.END_BC:
-                self.params[m + n_gamma_vec] = X[self.n_times - 1][m]
+                self.init_bc_vec[m] = X[self.n_times - 1][m]
                 if self.manifold_type != c.CONST_CURVATURE_ORD1:
-                    self.params[m + n_gamma_vec + n_dims] = (
+                    self.init_bc_vec[m + n_dims] = (
                         X[self.n_times - 1][m] - X[self.n_times - 2][m]
                     )
             elif self.ode_bc_mode == c.START_BC:
-                self.params[m + n_gamma_vec] = X[0][m]
+                self.init_bc_vec[m] = X[0][m]
                 if self.manifold_type != c.CONST_CURVATURE_ORD1:
-                    self.params[m + n_gamma_vec + n_dims] = X[1][m] - X[0][m]
+                    self.init_bc_vec[m + n_dims] = X[1][m] - X[0][m]
             else:
                 assert False
 
         self.act_sol = X.transpose()
 
+        self.gamma_bound_factor = 3.0
+        self.bc_bound_factor = 100.0        
+        
     def _set_params(self):
 
         t0 = time.time()
@@ -342,17 +351,19 @@ class GeodesicLearner:
 
         options = {
             "ftol": self.opt_tol,
+            "gtol": self.opt_tol,            
             "maxiter": self.max_opt_iters,
             "disp": True,
-            "eps": 1.0e-5,
+            "eps": 0.001,
         }
-
         try:
+            bounds = self._get_bounds()
             opt_obj = scipy.optimize.minimize(
                 fun=self._get_obj_func,
                 x0=self.params,
                 method=self.opt_method,
                 jac=self._get_grad,
+                bounds=bounds,
                 options=options,
             )
             s_flag = opt_obj.success
@@ -372,6 +383,41 @@ class GeodesicLearner:
 
         return s_flag
 
+    def _get_bounds(self):
+                       
+        if self.manifold_type == c.CONST_CURVATURE_ORD1:
+            n_gamma_vec = self.n_params - self.n_dims
+        else:
+            n_gamma_vec = self.n_params - 2 * self.n_dims
+
+        tmp1 = np.max(np.diff(self.act_sol))
+        tmp2 = np.mean(self.act_sol)
+        if tmp2 != 0:
+            tmp2 = 1.0 / tmp2
+            
+        gamma_bound = tmp1 * tmp2 * self.gamma_bound_factor
+        bounds = [(-gamma_bound, gamma_bound) for i in range(n_gamma_vec)]
+        
+        for m in range(self.n_dims):
+            
+            bc_bound = self.bc_bound_factor * abs(
+                np.max(self.act_sol[m] - self.init_bc_vec[m])
+            )
+            
+            bounds += [(-bc_bound, bc_bound)]
+
+        if self.manifold_type != c.CONST_CURVATURE_ORD1:
+            for m in range(self.n_dims):
+                bc_bound = self.bc_bound_factor * abs(
+                    np.max(
+                        np.diff(self.act_sol[m]) - self.init_bc_vec[m + self.n_dims]
+                    )
+                )
+            
+                bounds += [(-bc_bound, bc_bound)]
+
+        return bounds
+                       
     def _get_obj_func(self, params):
 
         # Get solution
@@ -494,7 +540,7 @@ class GeodesicLearner:
         learning_rate = self.learning_rate
         if learning_rate is None:
             tmp1 = np.linalg.norm(gamma_vec)
-            tmp2 = np.linalg.norm(grad)
+            tmp2 = np.linalg.norm(grad[:n_gamma_vec])
 
             learning_rate = 1.0
             if tmp2 > 0:
@@ -591,7 +637,7 @@ class GeodesicLearner:
             n_gamma_vec = self.n_params - 2 * self.n_dims
 
         gamma_vec = params[:n_gamma_vec]
-        bc_vec = params[n_gamma_vec:]
+        bc_vec = params[n_gamma_vec:] + self.init_bc_vec
 
         ode_params = self._get_ode_params(params)
 
