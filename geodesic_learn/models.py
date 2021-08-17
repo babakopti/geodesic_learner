@@ -43,6 +43,7 @@ class GeodesicLearner:
         learning_rate: float = 1.0,
         alpha: float = 0.0,
         l1_ratio: float = 0.0,
+        diagonal_christoffel: bool = False,            
         diagonal_metric: bool = True,
         self_relation: bool = False,
         verbose: bool = True,
@@ -107,6 +108,10 @@ class GeodesicLearner:
         |          For 0 < l1_ratio < 1, the penalty is a combination of L1 and L2.
         |          Default is 0.
         |
+        |     diagonal_christoffel: bool
+        |          Assume diagonal christoffel symbols. Only applies to "constant_curevature" manifolds.
+        |          Default is False.
+        |
         |     diagonal_metric: bool
         |          Assume a diagonal metric. Only applies to "constant_curevature" manifolds.
         |          Default is True.
@@ -136,6 +141,7 @@ class GeodesicLearner:
         self.learning_rate = learning_rate
         self.alpha = alpha
         self.l1_ratio = l1_ratio
+        self.diagonal_christoffel = diagonal_christoffel        
         self.diagonal_metric = diagonal_metric
         self.self_relation = self_relation
         self.verbose = verbose
@@ -295,7 +301,9 @@ class GeodesicLearner:
             c.CONST_CURVATURE_ORD2,
         ]:
 
-            if self.diagonal_metric:
+            if self.diagonal_christoffel:
+                self.n_params = n_dims * n_dims
+            elif self.diagonal_metric:
                 self.n_params = n_dims * (2 * n_dims - 1)
             else:
                 self.n_params = int(n_dims * n_dims * (n_dims + 1) / 2)
@@ -478,6 +486,8 @@ class GeodesicLearner:
             for p in range(n_dims):
                 for q in range(p, n_dims):
 
+                    if self.diagonal_christoffel and p != q:
+                        continue
                     if self.diagonal_metric and r != p and r != q and p != q:
                         continue
                     if (not self.self_relation) and r == p and p == q:
@@ -816,6 +826,8 @@ class GeodesicLearner:
             for a in range(n_dims):
                 for b in range(a, n_dims):
 
+                    if self.diagonal_christoffel and a != b:
+                        continue
                     if self.diagonal_metric and m != a and m != b and a != b:
                         continue
                     elif (not self.self_relation) and m == a and a == b:

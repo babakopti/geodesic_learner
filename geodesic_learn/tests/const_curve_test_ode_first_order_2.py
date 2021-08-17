@@ -60,6 +60,7 @@ geodesic_learner = GeodesicLearner(
     learning_rate=None,
     alpha=1.0e-6,
     l1_ratio=0.0,
+    diagonal_christoffel=False,   
     diagonal_metric=True,
     self_relation=False,
     verbose=True,
@@ -82,6 +83,7 @@ act_vals_test = X_test.transpose() #scaler.inverse_transform(X_test).transpose()
 prd_vals_train = X_train_prd.transpose() #scaler.inverse_transform(X_train_prd).transpose()
 prd_vals_test = X_test_prd.transpose() #scaler.inverse_transform(X_test_prd).transpose()    
 
+test_scores = []
 for m in range(len(col_names)):
     y_true_train = act_vals_train[m]
     y_true_test = act_vals_test[m]    
@@ -92,6 +94,9 @@ for m in range(len(col_names)):
         r2_score(y_true_train, y_pred_train),
         r2_score(y_true_test, y_pred_test)
     )
+    test_scores.append(r2_score(y_true_test, y_pred_test))
+
+print("Average test score:", np.mean(test_scores))    
 
 for m in range(len(col_names)):    
     plt.plot(act_vals_train[m], "b")
