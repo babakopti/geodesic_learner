@@ -12,8 +12,8 @@ import mpl_toolkits.mplot3d as Axes3D
 import gc
 from scipy.integrate import trapz
 
-import const as c
-from ode import (
+import geodesic_learn.const as c
+from geodesic_learn.ode import (
     OdeGeoConstOrd1,
     OdeGeoConstIEOrd1,
     OdeAdjConstIEOrd1,        
@@ -23,7 +23,7 @@ from ode import (
     OdeGeoQuadratic,
     OdeAdjQuadratic,
 )
-from utils import get_logger
+from geodesic_learn.utils import get_logger
 
 
 class GeodesicLearner:

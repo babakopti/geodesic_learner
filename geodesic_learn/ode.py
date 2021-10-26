@@ -5,7 +5,8 @@ import time
 import numpy as np
 import scipy as sp
 from scipy.integrate import trapz
-from ode_base import OdeBase, OdeBaseIE
+
+from geodesic_learn.ode_base import OdeBase, OdeBaseIE
 
 # OdeGeoConstIEOrd1: Geodesic ODE IE solver; 1st order; const. curv.
 class OdeGeoConstIEOrd1(OdeBaseIE):
