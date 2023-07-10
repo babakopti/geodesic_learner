@@ -50,15 +50,15 @@ geodesic_learner = GeodesicLearner(
     opt_method="SLSQP",
     max_opt_iters=300,
     opt_tol=1.0e-8,
-    ode_geo_solver="LSODA",
-    ode_adj_solver="RK45",
-    ode_geo_tol=1.0e-2,
+    ode_geo_solver="implicit_euler",
+    ode_adj_solver="implicit_euler",
+    ode_geo_tol=1.0e-6,
     ode_adj_tol=1.0e-2,
-    ode_geo_max_iters=20,
-    ode_adj_max_iters=20,
+    ode_geo_max_iters=200,
+    ode_adj_max_iters=200,
     ode_bc_mode="end_bc",
     learning_rate=None,
-    alpha=1.0e-6,
+    alpha=10.0,
     l1_ratio=0.0,
     diagonal_christoffel=False,   
     diagonal_metric=True,
@@ -97,7 +97,7 @@ for m in range(len(col_names)):
     test_scores.append(r2_score(y_true_test, y_pred_test))
 
 print("Average test score:", np.mean(test_scores))    
-
+sys.exit()
 for m in range(len(col_names)):    
     plt.plot(act_vals_train[m], "b")
     plt.plot(prd_vals_train[m], "r")    
